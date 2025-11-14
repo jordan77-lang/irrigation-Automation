@@ -1,0 +1,12 @@
+[
+  {
+    "device_id": "pd01",
+    "base_virtual_deg": 0.0,
+    "open_turns": 4.0,
+    "open_delta_deg": 1440.0,
+    "min_open_min": 10,
+    "max_open_min": 30,
+    "days_between": 14,
+    "jitter_days": 0
+  }
+]

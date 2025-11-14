@@ -1,0 +1,21 @@
+{
+  "generated_at": "2025-11-14T00:00:00Z",
+  "devices": {
+    "pd01": [
+      {
+        "id": "pd01-20251127T034200-open",
+        "action": "open",
+        "time": "2025-11-27T03:42:00Z",
+        "virtual_angle": 1440.0,
+        "expected_duration_s": 1200
+      },
+      {
+        "id": "pd01-20251127T034200-close",
+        "action": "close",
+        "time": "2025-11-27T05:02:00Z",
+        "virtual_angle": 0.0,
+        "expected_duration_s": 30
+      }
+    ]
+  }
+}

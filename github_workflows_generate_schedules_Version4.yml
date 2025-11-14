@@ -1,0 +1,47 @@
+name: Generate and sign PD-Stepper schedules
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *'  # daily at 00:00 UTC
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: python -m pip install -r scripts/requirements.txt
+      - name: Run schedule generator (uses manual_events.json if present)
+        env:
+          DAYS_AHEAD: '90'
+        run: |
+          python scripts/generate_schedules.py --devices devices/devices.json --out schedules/schedules.json --days ${DAYS_AHEAD}
+      - name: Sign payload (HMAC-SHA256)
+        env:
+          SIGN_KEY: ${{ secrets.SIGN_KEY }}
+        run: |
+          python - <<'PY'
+import hmac, hashlib
+from pathlib import Path
+data = Path('schedules/schedules.json').read_bytes()
+key = bytes('${{ secrets.SIGN_KEY }}','utf-8')
+sig = hmac.new(key, data, hashlib.sha256).hexdigest()
+Path('schedules/schedules.json.sig').write_text(sig)
+print('Wrote signature to schedules/schedules.json.sig')
+PY
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add schedules/schedules.json schedules/schedules.json.sig
+          git commit -m "chore: update generated schedules" || echo "no changes to commit"
+          git push

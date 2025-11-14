@@ -1,0 +1,21 @@
+{
+  "generated_at": "",
+  "devices": {
+    "pd01": [
+      {
+        "id": "pd01-custom-1",
+        "action": "open",
+        "time": "2025-12-01T03:30:00Z",
+        "virtual_angle": 1440.0,
+        "expected_duration_s": 900
+      },
+      {
+        "id": "pd01-custom-1-close",
+        "action": "close",
+        "time": "2025-12-01T03:45:00Z",
+        "virtual_angle": 0.0,
+        "expected_duration_s": 30
+      }
+    ]
+  }
+}

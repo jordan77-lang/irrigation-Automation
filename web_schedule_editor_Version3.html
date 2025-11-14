@@ -1,0 +1,84 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PD-Stepper Schedule Editor</title>
+  <style>
+    body { font-family: sans-serif; max-width: 900px; margin: 2rem auto; }
+    input, select { padding: 0.3rem; margin: 0.2rem; }
+    textarea { width:100%; height: 200px; }
+    .event { border: 1px solid #ddd; padding: 0.6rem; margin-bottom: 0.4rem; }
+  </style>
+</head>
+<body>
+  <h1>Schedule Editor (local)</h1>
+  <p>This simple editor lets you compose schedule events locally and download a `manual_events.json` file that you can upload to the repository via the GitHub web UI (or commit via git).</p>
+
+  <div>
+    Device ID: <input id="deviceId" value="pd01" />
+    <button id="addEvent">Add Event</button>
+    <button id="download">Download manual_events.json</button>
+  </div>
+
+  <div id="events"></div>
+
+  <script>
+    const eventsEl = document.getElementById('events');
+    const deviceIdEl = document.getElementById('deviceId');
+    function render() {
+      eventsEl.innerHTML = '';
+      const evs = JSON.parse(localStorage.getItem('events')||'[]');
+      evs.forEach((e,i) => {
+        const d = document.createElement('div'); d.className='event';
+        d.innerHTML = `
+          <b>${e.action.toUpperCase()}</b> at <input type="datetime-local" data-i="${i}" class="time" value="${e.time_local||''}" />
+          Virtual angle: <input type="number" data-i="${i}" class="angle" value="${e.virtual_angle}" />
+          Exp dur (s): <input type="number" data-i="${i}" class="dur" value="${e.expected_duration_s||60}" />
+          <button data-i="${i}" class="remove">Remove</button>
+        `;
+        eventsEl.appendChild(d);
+      });
+      document.querySelectorAll('.remove').forEach(b=>b.onclick = e => {
+        const i = +e.target.getAttribute('data-i'); const evs = JSON.parse(localStorage.getItem('events')||'[]'); evs.splice(i,1); localStorage.setItem('events', JSON.stringify(evs)); render();
+      });
+      document.querySelectorAll('.time').forEach(inp=> inp.onchange = e => {
+        const i = +e.target.getAttribute('data-i'); const evs = JSON.parse(localStorage.getItem('events')||'[]');
+        evs[i].time_local = e.target.value; // local time, convert on download
+        localStorage.setItem('events', JSON.stringify(evs));
+      });
+      document.querySelectorAll('.angle').forEach(inp=> inp.onchange = e => {
+        const i = +e.target.getAttribute('data-i'); const evs = JSON.parse(localStorage.getItem('events')||'[]');
+        evs[i].virtual_angle = parseFloat(e.target.value); localStorage.setItem('events', JSON.stringify(evs));
+      });
+      document.querySelectorAll('.dur').forEach(inp=> inp.onchange = e => {
+        const i = +e.target.getAttribute('data-i'); const evs = JSON.parse(localStorage.getItem('events')||'[]');
+        evs[i].expected_duration_s = parseInt(e.target.value); localStorage.setItem('events', JSON.stringify(evs));
+      });
+    }
+
+    document.getElementById('addEvent').onclick = () => {
+      const evs = JSON.parse(localStorage.getItem('events')||'[]');
+      evs.push({action:'open', time_local:'', virtual_angle:1440.0, expected_duration_s:600});
+      localStorage.setItem('events', JSON.stringify(evs)); render();
+    };
+    document.getElementById('download').onclick = () => {
+      const deviceId = deviceIdEl.value || 'pd01';
+      const evs = JSON.parse(localStorage.getItem('events')||'[]');
+      // convert local datetime-local string to UTC iso
+      const parsed = evs.map(e => {
+        let iso = null;
+        if (e.time_local) {
+          const d = new Date(e.time_local);
+          iso = new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().replace('.000Z','Z');
+        }
+        return { id:`${deviceId}-${(iso||'manual')}`, action:e.action, time: iso, virtual_angle: e.virtual_angle, expected_duration_s: e.expected_duration_s };
+      });
+      const payload = { generated_at: new Date().toISOString().replace('.000Z','Z'), devices: { [deviceId]: parsed } };
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(payload, null, 2));
+      const dl = document.createElement('a'); dl.setAttribute('href', dataStr); dl.setAttribute('download','manual_events.json'); document.body.appendChild(dl); dl.click(); dl.remove();
+    };
+
+    render();
+  </script>
+</body>
+</html>
