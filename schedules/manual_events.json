@@ -1,0 +1,21 @@
+{
+  "generated_at": "",
+  "devices": {
+    "pd01": [
+      {
+        "id": "pd01-example-open",
+        "action": "open",
+        "time": "2026-06-20T13:00:00Z",
+        "virtual_angle": 1440.0,
+        "expected_duration_s": 120
+      },
+      {
+        "id": "pd01-example-close",
+        "action": "close",
+        "time": "2026-06-20T15:00:00Z",
+        "virtual_angle": 0.0,
+        "expected_duration_s": 60
+      }
+    ]
+  }
+}

@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Irrigation Schedule</title>
+  <style>
+    :root {
+      --bg: #f4f7f4;
+      --card: #ffffff;
+      --accent: #2d6a4f;
+      --accent-dark: #1b4332;
+      --border: #d8e2dc;
+      --text: #1d1d1d;
+      --muted: #5c6b63;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 1.5rem;
+      line-height: 1.5;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; }
+    h1 { margin: 0 0 0.25rem; color: var(--accent-dark); }
+    .sub { color: var(--muted); margin-bottom: 1.5rem; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
+    }
+    label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+    input, select, button {
+      font: inherit;
+      padding: 0.5rem 0.65rem;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    input, select { width: 100%; margin-bottom: 0.75rem; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+    }
+    button:hover { background: var(--accent-dark); }
+    button.secondary { background: #fff; color: var(--accent-dark); border: 1px solid var(--border); }
+    .window {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      margin-bottom: 0.75rem;
+      background: #fafcfa;
+    }
+    .window h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
+    .note {
+      font-size: 0.9rem;
+      color: var(--muted);
+      background: #eef6f0;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+    }
+    .note a { color: var(--accent-dark); }
+    code { background: #eef1ee; padding: 0.1rem 0.35rem; border-radius: 4px; }
+    .status-ok { color: #2d6a4f; font-weight: 600; }
+    .status-warn { color: #bc6c25; font-weight: 600; }
+    .links { margin: 0.5rem 0 0; padding-left: 1.2rem; }
+    .links li { margin: 0.35rem 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Flood Irrigation Schedule</h1>
+    <p class="sub">Set open and close times for your PD-Stepper. The field device fetches the signed schedule from GitHub over Wi‑Fi.</p>
+
+    <div class="card note">
+      <strong>First-time setup</strong>
+      <ol class="links">
+        <li>Add GitHub Actions secret <code>SIGN_KEY</code> —
+          <a href="https://github.com/jordan77-lang/irrigation-Automation/settings/secrets/actions" target="_blank" rel="noopener">repo secrets</a></li>
+        <li>Enable Pages (source: GitHub Actions) —
+          <a href="https://github.com/jordan77-lang/irrigation-Automation/settings/pages" target="_blank" rel="noopener">Pages settings</a></li>
+        <li>Build schedule below → publish to
+          <a href="https://github.com/jordan77-lang/irrigation-Automation/edit/main/schedules/manual_events.json" target="_blank" rel="noopener">schedules/manual_events.json</a></li>
+        <li>Confirm workflow ran —
+          <a href="https://github.com/jordan77-lang/irrigation-Automation/actions" target="_blank" rel="noopener">Actions</a></li>
+      </ol>
+      <p style="margin: 0.75rem 0 0;">Schedule feed: <span id="feedStatus">checking…</span></p>
+    </div>
+
+    <div class="card">
+      <label for="deviceId">Device ID</label>
+      <input id="deviceId" value="pd01" />
+
+      <label for="openTurns">Valve open (full turns)</label>
+      <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
+
+      <div class="actions">
+        <button type="button" id="addWindow">Add irrigation window</button>
+      </div>
+    </div>
+
+    <div id="windows"></div>
+
+    <div class="card">
+      <div class="actions">
+        <button type="button" id="download">Download manual_events.json</button>
+        <button type="button" class="secondary" id="copyJson">Copy JSON</button>
+      </div>
+      <p class="note" style="margin-top: 1rem;">
+        <strong>Publish:</strong> Click
+        <a href="https://github.com/jordan77-lang/irrigation-Automation/edit/main/schedules/manual_events.json" target="_blank" rel="noopener">edit manual_events.json</a>,
+        paste the copied JSON, and commit. GitHub Actions signs and publishes
+        <code>schedules.json</code> for your device.
+      </p>
+    </div>
+  </div>
+
+  <script>
+    const STORAGE_KEY = "irrigation_windows_v1";
+
+    function defaultWindows() {
+      return [{
+        label: "Window 1",
+        openLocal: "",
+        closeLocal: "",
+        repeatWeeks: 12
+      }];
+    }
+
+    function loadWindows() {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultWindows();
+      } catch {
+        return defaultWindows();
+      }
+    }
+
+    function saveWindows(windows) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(windows));
+    }
+
+    function localToUtcIso(localValue) {
+      if (!localValue) return null;
+      const d = new Date(localValue);
+      if (Number.isNaN(d.getTime())) return null;
+      return d.toISOString().replace(".000Z", "Z");
+    }
+
+    function addWeeks(date, weeks) {
+      const d = new Date(date);
+      d.setDate(d.getDate() + weeks * 7);
+      return d;
+    }
+
+    function buildPayload() {
+      const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+      const openTurns = parseFloat(document.getElementById("openTurns").value) || 4;
+      const openAngle = openTurns * 360;
+      const closeAngle = 0;
+      const windows = loadWindows();
+      const events = [];
+
+      windows.forEach((w, idx) => {
+        if (!w.openLocal || !w.closeLocal) return;
+        const openStart = new Date(w.openLocal);
+        const closeStart = new Date(w.closeLocal);
+        if (Number.isNaN(openStart.getTime()) || Number.isNaN(closeStart.getTime())) return;
+        if (closeStart <= openStart) return;
+
+        const repeatWeeks = Math.max(1, parseInt(w.repeatWeeks, 10) || 1);
+        const durationSec = Math.round((closeStart - openStart) / 1000);
+
+        for (let week = 0; week < repeatWeeks; week++) {
+          const openDate = addWeeks(openStart, week);
+          const closeDate = addWeeks(closeStart, week);
+          const stamp = openDate.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "T");
+          events.push({
+            id: `${deviceId}-${stamp}-open`,
+            action: "open",
+            time: openDate.toISOString().replace(".000Z", "Z"),
+            virtual_angle: openAngle,
+            expected_duration_s: durationSec
+          });
+          events.push({
+            id: `${deviceId}-${stamp}-close`,
+            action: "close",
+            time: closeDate.toISOString().replace(".000Z", "Z"),
+            virtual_angle: closeAngle,
+            expected_duration_s: 60
+          });
+        }
+      });
+
+      events.sort((a, b) => a.time.localeCompare(b.time));
+
+      return {
+        generated_at: new Date().toISOString().replace(".000Z", "Z"),
+        devices: { [deviceId]: events }
+      };
+    }
+
+    function render() {
+      const el = document.getElementById("windows");
+      const windows = loadWindows();
+      el.innerHTML = "";
+
+      windows.forEach((w, i) => {
+        const div = document.createElement("div");
+        div.className = "card window";
+        div.innerHTML = `
+          <h3>${w.label || `Window ${i + 1}`}</h3>
+          <div class="row">
+            <div>
+              <label>Open (local time)</label>
+              <input type="datetime-local" data-field="openLocal" data-i="${i}" value="${w.openLocal || ""}" />
+            </div>
+            <div>
+              <label>Close (local time)</label>
+              <input type="datetime-local" data-field="closeLocal" data-i="${i}" value="${w.closeLocal || ""}" />
+            </div>
+          </div>
+          <label>Repeat weekly for (weeks)</label>
+          <input type="number" min="1" max="52" data-field="repeatWeeks" data-i="${i}" value="${w.repeatWeeks || 12}" />
+          <div class="actions">
+            <button type="button" class="secondary remove" data-i="${i}">Remove</button>
+          </div>
+        `;
+        el.appendChild(div);
+      });
+
+      el.querySelectorAll("input").forEach((inp) => {
+        inp.addEventListener("change", () => {
+          const i = +inp.dataset.i;
+          const field = inp.dataset.field;
+          const data = loadWindows();
+          if (field === "repeatWeeks") {
+            data[i][field] = parseInt(inp.value, 10) || 1;
+          } else {
+            data[i][field] = inp.value;
+          }
+          saveWindows(data);
+        });
+      });
+
+      el.querySelectorAll(".remove").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const i = +btn.dataset.i;
+          const data = loadWindows();
+          data.splice(i, 1);
+          saveWindows(data);
+          render();
+        });
+      });
+    }
+
+    document.getElementById("addWindow").addEventListener("click", () => {
+      const data = loadWindows();
+      data.push({
+        label: `Window ${data.length + 1}`,
+        openLocal: "",
+        closeLocal: "",
+        repeatWeeks: 12
+      });
+      saveWindows(data);
+      render();
+    });
+
+    document.getElementById("download").addEventListener("click", () => {
+      const payload = buildPayload();
+      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "manual_events.json";
+      a.click();
+      URL.revokeObjectURL(a.href);
+    });
+
+    document.getElementById("copyJson").addEventListener("click", async () => {
+      const payload = buildPayload();
+      const events = payload.devices[Object.keys(payload.devices)[0]] || [];
+      if (events.length === 0) {
+        alert("Add at least one open and close time first.");
+        return;
+      }
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      alert("JSON copied — paste into schedules/manual_events.json on GitHub.");
+    });
+
+    async function checkFeed() {
+      const el = document.getElementById("feedStatus");
+      const base = "https://raw.githubusercontent.com/jordan77-lang/irrigation-Automation/main/schedules";
+      try {
+        const [jsonRes, sigRes] = await Promise.all([
+          fetch(`${base}/schedules.json`, { cache: "no-store" }),
+          fetch(`${base}/schedules.json.sig`, { cache: "no-store" })
+        ]);
+        if (jsonRes.ok && sigRes.ok) {
+          const sig = (await sigRes.text()).trim();
+          if (/^[a-f0-9]{64}$/i.test(sig)) {
+            el.innerHTML = '<span class="status-ok">Live — signed schedule is on GitHub</span>';
+            return;
+          }
+        }
+        el.innerHTML = '<span class="status-warn">Not ready — add SIGN_KEY and run the sign workflow</span>';
+      } catch {
+        el.innerHTML = '<span class="status-warn">Could not reach GitHub (check repo is public)</span>';
+      }
+    }
+
+    render();
+    checkFeed();
+  </script>
+</body>
+</html>

@@ -1,0 +1,41 @@
+#pragma once
+
+// Copy this file to config.h and fill in your values.
+// config.h is gitignored so secrets stay local.
+
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASS "YOUR_WIFI_PASSWORD"
+
+#define DEVICE_ID "pd01"
+
+// Must match the SIGN_KEY GitHub Actions secret used to sign schedules.
+#define SIGN_KEY "your-shared-sign-key"
+
+#define SCHEDULE_URL \
+  "https://raw.githubusercontent.com/jordan77-lang/irrigation-Automation/main/schedules/schedules.json"
+#define SIGNATURE_URL \
+  "https://raw.githubusercontent.com/jordan77-lang/irrigation-Automation/main/schedules/schedules.json.sig"
+
+// PD-Stepper board pinout (Things by Josh)
+#define PIN_STEP 5
+#define PIN_DIR 6
+#define PIN_EN 21
+#define PIN_PG 15
+#define PIN_SDA 8
+#define PIN_SCL 9
+
+// Valve travel (multi-turn virtual angle in degrees)
+#define CLOSED_VIRTUAL_ANGLE 0.0f
+#define OPEN_VIRTUAL_ANGLE 1440.0f
+
+// Stepper: 200 full steps/rev with 64x microstepping (MS1/MS2 on PD-Stepper)
+#define STEPS_PER_REV 200
+#define MICROSTEPS 64
+
+// Timing / power
+#define WAKE_EARLY_SEC 60          // wake before event for NTP fine-tune
+#define GRACE_PERIOD_SEC 300       // still run if up to 5 min late
+#define NTP_RESYNC_INTERVAL_SEC (24 * 3600)
+#define SCHEDULE_REFRESH_INTERVAL_SEC (12 * 3600)
+#define MOVE_TIMEOUT_MS 120000
+#define WIFI_CONNECT_TIMEOUT_MS 20000

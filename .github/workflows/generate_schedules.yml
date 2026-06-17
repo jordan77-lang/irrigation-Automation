@@ -1,0 +1,63 @@
+name: Generate and sign schedules
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - schedules/manual_events.json
+      - devices/devices.json
+      - scripts/generate_schedules.py
+  schedule:
+    - cron: "0 0 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: python -m pip install -r scripts/requirements.txt
+
+      - name: Generate schedules
+        env:
+          DAYS_AHEAD: "90"
+        run: |
+          python scripts/generate_schedules.py \
+            --devices devices/devices.json \
+            --out schedules/schedules.json \
+            --days ${DAYS_AHEAD}
+
+      - name: Sign payload (HMAC-SHA256)
+        env:
+          SIGN_KEY: ${{ secrets.SIGN_KEY }}
+        run: |
+          python - <<'PY'
+          import hmac, hashlib, os, sys
+          from pathlib import Path
+          key = os.environ.get("SIGN_KEY", "").strip()
+          if not key:
+              print("ERROR: SIGN_KEY secret is not set in repo Settings -> Secrets -> Actions")
+              sys.exit(1)
+          data = Path("schedules/schedules.json").read_bytes()
+          sig = hmac.new(key.encode("utf-8"), data, hashlib.sha256).hexdigest()
+          Path("schedules/schedules.json.sig").write_text(sig)
+          print("Wrote schedules/schedules.json.sig")
+          PY
+
+      - name: Commit generated files
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add schedules/schedules.json schedules/schedules.json.sig
+          git commit -m "chore: update signed schedules" || echo "no changes to commit"
+          git push
