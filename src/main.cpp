@@ -17,6 +17,21 @@
 #warning "Using config.example.h — copy include/config.example.h to include/config.h"
 #endif
 
+#ifndef PG_WAIT_MS
+#define PG_WAIT_MS 10000
+#endif
+#ifndef REFRESH_SCHEDULE_EVERY_WAKE
+#define REFRESH_SCHEDULE_EVERY_WAKE 1
+#endif
+#ifndef PIN_MS1
+#define PIN_MS1 1
+#define PIN_MS2 2
+#define PIN_SPREAD 7
+#define PIN_CFG1 38
+#define PIN_CFG2 48
+#define PIN_CFG3 47
+#endif
+
 static const char* PREFS_NS = "pdstepper";
 static const char* SCHEDULE_CACHE_PATH = "/schedule.json";
 Preferences prefs;
@@ -68,6 +83,15 @@ static time_t parse_iso8601_utc(const char* iso) {
   setenv("TZ", "UTC0", 1);
   tzset();
   return mktime(&tm);
+}
+
+static void log_time(const char* label, time_t t) {
+  char buf[32];
+  struct tm tm;
+  gmtime_r(&t, &tm);
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  Serial.print(label);
+  Serial.println(buf);
 }
 
 static bool sync_ntp() {
@@ -218,12 +242,19 @@ static bool fetch_and_cache_schedule() {
 }
 
 static bool load_schedule_json(String& json) {
+#if REFRESH_SCHEDULE_EVERY_WAKE
+  if (connect_wifi()) {
+    fetch_and_cache_schedule();
+    disconnect_wifi();
+  }
+#else
   if (schedule_cache_stale() || !LittleFS.exists(SCHEDULE_CACHE_PATH)) {
     if (connect_wifi()) {
       fetch_and_cache_schedule();
       disconnect_wifi();
     }
   }
+#endif
   json = load_cached_schedule();
   return json.length() > 0;
 }
@@ -302,22 +333,48 @@ static float read_as5600_degrees() {
 }
 
 static bool wait_power_good() {
-  for (int i = 0; i < 50; i++) {
-    if (digitalRead(PIN_PG) == HIGH) return true;
+  log_line("Waiting for PG (motor power)...");
+  const int attempts = PG_WAIT_MS / 100;
+  for (int i = 0; i < attempts; i++) {
+    if (digitalRead(PIN_PG) == HIGH) {
+      Serial.print("PG ready (");
+      Serial.print((i + 1) * 100);
+      Serial.println(" ms)");
+      return true;
+    }
     delay(100);
   }
+  log_line("PG still low — check power supply / USB PD");
   return false;
 }
 
 static void init_hardware() {
+  // USB-PD trigger (CH224K) — request 12V so PG goes high and motor rail is powered
+  pinMode(PIN_CFG1, OUTPUT);
+  pinMode(PIN_CFG2, OUTPUT);
+  pinMode(PIN_CFG3, OUTPUT);
+  digitalWrite(PIN_CFG1, LOW);
+  digitalWrite(PIN_CFG2, LOW);
+  digitalWrite(PIN_CFG3, HIGH);  // 12V profile per PD-Stepper examples
+
+  pinMode(PIN_PG, INPUT);
+  pinMode(PIN_MS1, OUTPUT);
+  pinMode(PIN_MS2, OUTPUT);
+  pinMode(PIN_SPREAD, OUTPUT);
+  digitalWrite(PIN_MS1, LOW);   // 1/64 microstepping (MS2=1, MS1=0)
+  digitalWrite(PIN_MS2, HIGH);
+  digitalWrite(PIN_SPREAD, LOW);
+
   Wire.begin(PIN_SDA, PIN_SCL);
   pinMode(PIN_STEP, OUTPUT);
   pinMode(PIN_DIR, OUTPUT);
   pinMode(PIN_EN, OUTPUT);
-  pinMode(PIN_PG, INPUT);
   digitalWrite(PIN_STEP, LOW);
+  digitalWrite(PIN_DIR, LOW);
   digitalWrite(PIN_EN, HIGH);
   degrees_per_microstep = 360.0f / (STEPS_PER_REV * MICROSTEPS);
+
+  delay(500);  // allow PD negotiation before first move
 }
 
 static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
@@ -414,19 +471,15 @@ void setup() {
     log_line("LittleFS mount failed");
   }
 
-  bool need_wifi = ntp_stale() || schedule_cache_stale() || !LittleFS.exists(SCHEDULE_CACHE_PATH);
-  if (need_wifi) {
-    if (connect_wifi()) {
-      if (ntp_stale()) sync_ntp();
-      if (schedule_cache_stale() || !LittleFS.exists(SCHEDULE_CACHE_PATH)) {
-        fetch_and_cache_schedule();
-      }
-      disconnect_wifi();
-    }
+  if (connect_wifi()) {
+    sync_ntp();
+    disconnect_wifi();
+  } else {
+    log_line("Wi-Fi failed — using cached schedule if available");
   }
 
   if (time(nullptr) < 1700000000) {
-  // No valid time — retry soon
+    log_line("Invalid time after NTP — retrying");
     if (connect_wifi()) {
       sync_ntp();
       disconnect_wifi();
@@ -435,6 +488,8 @@ void setup() {
       deep_sleep_seconds(300);
     }
   }
+
+  log_time("Now: ", time(nullptr));
 
   String schedule_json;
   if (!load_schedule_json(schedule_json)) {
@@ -451,14 +506,22 @@ void setup() {
   time_t now = time(nullptr);
   Serial.print("Next event: ");
   Serial.println(next.id);
+  log_time("Event time: ", next.timestamp);
 
   if (now < next.timestamp - WAKE_EARLY_SEC) {
+    Serial.print("Sleeping until ");
+    Serial.print((unsigned long)(next.timestamp - WAKE_EARLY_SEC - now));
+    Serial.println(" s before event");
     sleep_until_event(next.timestamp);
-    if (connect_wifi()) sync_ntp();
-    disconnect_wifi();
+    if (connect_wifi()) {
+      sync_ntp();
+      disconnect_wifi();
+    }
   }
 
   now = time(nullptr);
+  log_time("Now (pre-run): ", now);
+
   if (now > next.timestamp + GRACE_PERIOD_SEC) {
     log_line("Event missed — marking done");
     mark_event_done(next.id);
@@ -466,7 +529,14 @@ void setup() {
   }
 
   if (now < next.timestamp) {
+    Serial.print("Waiting ");
+    Serial.print((unsigned long)(next.timestamp - now));
+    Serial.println(" s for event time");
     wait_until(next.timestamp);
+  } else {
+    Serial.print("Running ");
+    Serial.print((unsigned long)(now - next.timestamp));
+    Serial.println(" s late (within grace)");
   }
 
   Serial.print("Executing ");

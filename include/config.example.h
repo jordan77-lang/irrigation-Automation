@@ -20,7 +20,13 @@
 #define PIN_STEP 5
 #define PIN_DIR 6
 #define PIN_EN 21
+#define PIN_MS1 1
+#define PIN_MS2 2
+#define PIN_SPREAD 7
 #define PIN_PG 15
+#define PIN_CFG1 38
+#define PIN_CFG2 48
+#define PIN_CFG3 47
 #define PIN_SDA 8
 #define PIN_SCL 9
 
@@ -39,3 +45,5 @@
 #define SCHEDULE_REFRESH_INTERVAL_SEC (12 * 3600)
 #define MOVE_TIMEOUT_MS 120000
 #define WIFI_CONNECT_TIMEOUT_MS 20000
+#define PG_WAIT_MS 10000          // wait up to 10s for PD power-good before moving
+#define REFRESH_SCHEDULE_EVERY_WAKE 1
