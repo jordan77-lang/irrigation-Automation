@@ -160,7 +160,7 @@ static bool cache_schedule(const String& json) {
   if (!f) return false;
   f.print(json);
   f.close();
-  prefs.putULong("schedule_cached_at", (uint32_t)time(nullptr));
+  prefs.putULong("sched_cached", (uint32_t)time(nullptr));
   return true;
 }
 
@@ -174,7 +174,7 @@ static String load_cached_schedule() {
 }
 
 static bool schedule_cache_stale() {
-  uint32_t cached = prefs.getULong("schedule_cached_at", 0);
+  uint32_t cached = prefs.getULong("sched_cached", 0);
   if (cached == 0) return true;
   return (time(nullptr) - (time_t)cached) > SCHEDULE_REFRESH_INTERVAL_SEC;
 }
@@ -399,7 +399,8 @@ static void sleep_until_event(time_t event_time) {
 
 void setup() {
   Serial.begin(115200);
-  delay(100);
+  // USB CDC on ESP32-S3 needs time to enumerate before first prints
+  delay(2000);
 
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   Serial.print("Wake cause: ");
