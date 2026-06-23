@@ -1,6 +1,5 @@
 {
-  "generated_from": "manual_events.json",
-  "generated_at": "2026-06-17T00:00:00Z",
+  "generated_at": "2026-06-23T00:49:07Z",
   "devices": {
     "pd01": [
       {
@@ -18,5 +17,6 @@
         "expected_duration_s": 60
       }
     ]
-  }
+  },
+  "generated_from": "manual_events.json"
 }
