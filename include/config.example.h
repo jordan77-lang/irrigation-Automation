@@ -16,6 +16,13 @@
 #define SIGNATURE_URL \
   "https://raw.githubusercontent.com/jordan77-lang/irrigation-Automation/main/schedules/schedules.json.sig"
 
+// Optional: GitHub PAT with Contents write on this repo. When set, the device updates
+// schedules/device_status.json after it downloads a signed schedule (powers the site tell).
+// Use a fine-grained token scoped to this repo only. Leave empty to disable.
+#define GITHUB_STATUS_TOKEN ""
+#define GITHUB_REPO "jordan77-lang/irrigation-Automation"
+#define DEVICE_STATUS_PATH "schedules/device_status.json"
+
 // PD-Stepper board pinout (Things by Josh)
 #define PIN_STEP 5
 #define PIN_DIR 6
@@ -29,6 +36,14 @@
 #define PIN_CFG3 47
 #define PIN_SDA 8
 #define PIN_SCL 9
+#define PIN_LED1 10
+#define PIN_TMC_RX 18
+#define PIN_TMC_TX 17
+#define PIN_DIAG 16
+#define PIN_VBUS 4
+
+// TMC2209 run current as percent of max (official web UI default is 30; use 80+ for valve loads)
+#define TMC_RUN_CURRENT_PERCENT 80
 
 // Valve travel (multi-turn virtual angle in degrees)
 #define CLOSED_VIRTUAL_ANGLE 0.0f
@@ -47,3 +62,8 @@
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define PG_WAIT_MS 10000          // wait up to 10s for PD power-good before moving
 #define REFRESH_SCHEDULE_EVERY_WAKE 1
+// 1 = stay awake between events (required for most USB wall warts)
+#define USE_AWAKE_WAIT 1
+// 1 = light sleep; 0 = deep sleep — only used when USE_AWAKE_WAIT is 0
+#define USE_LIGHT_SLEEP 1
+#define USB_SERIAL_WAIT_MS 500

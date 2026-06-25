@@ -8,7 +8,9 @@
 #include <LittleFS.h>
 #include <esp_sleep.h>
 #include <mbedtls/md.h>
+#include <mbedtls/base64.h>
 #include <time.h>
+#include <TMC2209.h>
 
 #if __has_include("config.h")
 #include "config.h"
@@ -31,6 +33,46 @@
 #define PIN_CFG2 48
 #define PIN_CFG3 47
 #endif
+#ifndef PIN_LED1
+#define PIN_LED1 10
+#endif
+#ifndef USE_LIGHT_SLEEP
+#define USE_LIGHT_SLEEP 1
+#endif
+#ifndef USE_AWAKE_WAIT
+#define USE_AWAKE_WAIT 1  // stay awake between events — wall warts shut off during sleep
+#endif
+#ifndef USB_SERIAL_WAIT_MS
+#define USB_SERIAL_WAIT_MS 500
+#endif
+#ifndef PIN_VBUS
+#define PIN_VBUS 4
+#endif
+#ifndef PIN_TMC_RX
+#define PIN_TMC_RX 18
+#define PIN_TMC_TX 17
+#endif
+#ifndef PIN_DIAG
+#define PIN_DIAG 16
+#endif
+#ifndef TMC_RUN_CURRENT_PERCENT
+#define TMC_RUN_CURRENT_PERCENT 80
+#endif
+#ifndef PD_MIN_VOLTS
+#define PD_MIN_VOLTS 7.0f   // minimum VBUS to attempt a motor move (need 9V+ PD charger)
+#endif
+#ifndef GITHUB_STATUS_TOKEN
+#define GITHUB_STATUS_TOKEN ""
+#endif
+#ifndef GITHUB_REPO
+#define GITHUB_REPO "jordan77-lang/irrigation-Automation"
+#endif
+#ifndef DEVICE_STATUS_PATH
+#define DEVICE_STATUS_PATH "schedules/device_status.json"
+#endif
+
+static TMC2209 stepper_driver;
+static HardwareSerial& tmc_serial = Serial2;
 
 static const char* PREFS_NS = "pdstepper";
 static const char* SCHEDULE_CACHE_PATH = "/schedule.json";
@@ -125,6 +167,7 @@ static bool connect_wifi() {
   if (WiFi.status() == WL_CONNECTED) return true;
 
   WiFi.mode(WIFI_STA);
+  WiFi.setTxPower(WIFI_POWER_8_5dBm);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   log_line("Connecting Wi-Fi...");
 
@@ -217,6 +260,130 @@ static bool http_get_string(const char* url, String& out) {
   return false;
 }
 
+static String iso_utc_now() {
+  time_t now = time(nullptr);
+  struct tm tm;
+  gmtime_r(&now, &tm);
+  char buf[32];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return String(buf);
+}
+
+static String base64_encode_str(const String& in) {
+  size_t olen = 0;
+  const unsigned char* src = reinterpret_cast<const unsigned char*>(in.c_str());
+  size_t slen = in.length();
+  mbedtls_base64_encode(nullptr, 0, &olen, src, slen);
+  unsigned char* buf = (unsigned char*)malloc(olen + 1);
+  if (!buf) return "";
+  if (mbedtls_base64_encode(buf, olen, &olen, src, slen) != 0) {
+    free(buf);
+    return "";
+  }
+  String out(reinterpret_cast<char*>(buf), olen);
+  free(buf);
+  return out;
+}
+
+static bool status_report_enabled() {
+  return GITHUB_STATUS_TOKEN[0] != '\0';
+}
+
+static bool report_schedule_received(const String& schedule_json) {
+  if (!status_report_enabled()) return false;
+
+  StaticJsonDocument<8192> sched;
+  if (deserializeJson(sched, schedule_json)) {
+    log_line("Status report: schedule JSON parse failed");
+    return false;
+  }
+
+  const char* generated_at = sched["generated_at"] | "";
+  if (!generated_at[0]) {
+    log_line("Status report: no generated_at");
+    return false;
+  }
+
+  String last_reported = prefs.getString("status_reported_at", "");
+  if (last_reported == generated_at) {
+    log_line("Status report: already reported for this schedule");
+    return true;
+  }
+
+  JsonArray events = sched["devices"][DEVICE_ID].as<JsonArray>();
+  if (events.isNull()) {
+    log_line("Status report: no events for device");
+    return false;
+  }
+
+  const char* open_time = "";
+  const char* close_time = "";
+  for (JsonObject evt : events) {
+    const char* action = evt["action"] | "";
+    const char* when = evt["time"] | "";
+    if (!when[0]) continue;
+    if (strcmp(action, "open") == 0 && !open_time[0]) open_time = when;
+    if (strcmp(action, "close") == 0 && !close_time[0]) close_time = when;
+  }
+
+  String received_at = iso_utc_now();
+  String status_json = String("{\"") + DEVICE_ID + "\":{"
+    + "\"schedule_generated_at\":\"" + generated_at + "\","
+    + "\"received_at\":\"" + received_at + "\","
+    + "\"open_time\":\"" + open_time + "\","
+    + "\"close_time\":\"" + close_time + "\""
+    + "}}";
+
+  String api_url = String("https://api.github.com/repos/") + GITHUB_REPO + "/contents/" + DEVICE_STATUS_PATH;
+  String sha;
+  {
+    HTTPClient http;
+    http.begin(api_url);
+    http.setTimeout(15000);
+    http.addHeader("Authorization", String("Bearer ") + GITHUB_STATUS_TOKEN);
+    http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+    int code = http.GET();
+    if (code == 200) {
+      String body = http.getString();
+      StaticJsonDocument<512> doc;
+      if (!deserializeJson(doc, body)) sha = doc["sha"] | "";
+    }
+    http.end();
+  }
+
+  String b64 = base64_encode_str(status_json);
+  if (!b64.length()) {
+    log_line("Status report: base64 encode failed");
+    return false;
+  }
+
+  String put_body = String("{\"message\":\"device ") + DEVICE_ID + ": schedule received\","
+    + "\"content\":\"" + b64 + "\"";
+  if (sha.length()) put_body += ",\"sha\":\"" + sha + "\"";
+  put_body += "}";
+
+  HTTPClient http;
+  http.begin(api_url);
+  http.setTimeout(20000);
+  http.addHeader("Authorization", String("Bearer ") + GITHUB_STATUS_TOKEN);
+  http.addHeader("Accept", "application/vnd.github+json");
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+  int code = http.PUT(put_body);
+  http.end();
+
+  if (code != 200 && code != 201) {
+    Serial.print("Status report HTTP ");
+    Serial.println(code);
+    return false;
+  }
+
+  prefs.putString("status_reported_at", generated_at);
+  log_line("Status report: device ack published");
+  return true;
+}
+
 static bool fetch_and_cache_schedule() {
   String json;
   String sig;
@@ -238,6 +405,7 @@ static bool fetch_and_cache_schedule() {
     return false;
   }
   log_line("Schedule fetched and cached");
+  report_schedule_received(json);
   return true;
 }
 
@@ -323,6 +491,42 @@ static ScheduleEvent find_next_event(const String& json) {
 // Hardware
 // ---------------------------------------------------------------------------
 
+static void configure_pd_12v();
+static void configure_pd_9v();
+static void configure_pd_5v();
+static void led_sos();
+
+// PD-Stepper CH224K: PG active LOW = negotiated voltage matches request (motor rail on)
+static float read_vbus_volts() {
+  uint32_t mv_sum = 0;
+  for (int i = 0; i < 10; i++) {
+    mv_sum += analogReadMilliVolts(PIN_VBUS);
+    delayMicroseconds(100);
+  }
+  const float div_ratio = 0.1189427313f;
+  return (mv_sum / 10.0f / 1000.0f) / div_ratio;
+}
+
+static bool is_pg_good() {
+  return digitalRead(PIN_PG) == LOW;
+}
+
+static void log_power_state(const char* label) {
+  Serial.print(label);
+  Serial.print(" PG=");
+  Serial.print(digitalRead(PIN_PG));
+  Serial.print(" VBUS=");
+  Serial.print(read_vbus_volts(), 1);
+  Serial.println("V");
+}
+
+static void early_pd_init() {
+  pinMode(PIN_CFG1, OUTPUT);
+  pinMode(PIN_CFG2, OUTPUT);
+  pinMode(PIN_CFG3, OUTPUT);
+  configure_pd_12v();
+}
+
 static float read_as5600_degrees() {
   Wire.beginTransmission(0x36);
   Wire.write(0x0E);
@@ -335,34 +539,123 @@ static float read_as5600_degrees() {
 static bool wait_power_good() {
   log_line("Waiting for PG (motor power)...");
   const int attempts = PG_WAIT_MS / 100;
-  for (int i = 0; i < attempts; i++) {
-    if (digitalRead(PIN_PG) == HIGH) {
-      Serial.print("PG ready (");
-      Serial.print((i + 1) * 100);
-      Serial.println(" ms)");
-      return true;
+
+  struct PdProfile {
+    const char* label;
+    void (*configure)();
+  };
+
+  // Try common PD profiles — wall warts vary in what they offer
+  const PdProfile order[] = {
+    {"12V", configure_pd_12v},
+    {"9V", configure_pd_9v},
+    {"5V", configure_pd_5v},
+  };
+
+  for (const auto& profile : order) {
+    Serial.print("PD profile ");
+    Serial.println(profile.label);
+    profile.configure();
+    delay(1500);  // wall warts need 1–1.5s to complete PD re-negotiation after CFG change
+    for (int i = 0; i < attempts; i++) {
+      if (is_pg_good()) {
+        Serial.print("PG ready ");
+        Serial.print(profile.label);
+        Serial.print(" (");
+        Serial.print((i + 1) * 100);
+        Serial.print(" ms, VBUS ");
+        Serial.print(read_vbus_volts(), 1);
+        Serial.println(" V)");
+        return true;
+      }
+      delay(100);
     }
-    delay(100);
+    log_line("PG not good — trying next PD profile");
   }
-  log_line("PG still low — check power supply / USB PD");
+
+  log_line("PG never good — need USB-C PD charger + USB-C to C cable (QC not supported)");
+  log_power_state("Last check:");
+  led_sos();
   return false;
 }
 
-static void init_hardware() {
-  // USB-PD trigger (CH224K) — request 12V so PG goes high and motor rail is powered
-  pinMode(PIN_CFG1, OUTPUT);
-  pinMode(PIN_CFG2, OUTPUT);
-  pinMode(PIN_CFG3, OUTPUT);
+static void init_tmc2209() {
+  pinMode(PIN_DIAG, INPUT);
+  digitalWrite(PIN_EN, LOW);  // official PD-Stepper: EN held low; UART enable/disable
+
+  stepper_driver.setup(tmc_serial, 115200, TMC2209::SERIAL_ADDRESS_0, PIN_TMC_RX, PIN_TMC_TX);
+  stepper_driver.setRunCurrent(TMC_RUN_CURRENT_PERCENT);
+  stepper_driver.setMicrostepsPerStep(MICROSTEPS);
+  stepper_driver.enableAutomaticCurrentScaling();
+  stepper_driver.enableStealthChop();
+  stepper_driver.setCoolStepDurationThreshold(5000);
+  stepper_driver.disable();
+}
+
+static void motor_enable() {
+  if (!is_pg_good()) return;
+  stepper_driver.enable();  // UART only — EN pin stays LOW always per Josh's design
+}
+
+static void motor_disable() {
+  stepper_driver.disable();  // UART only — never raise EN HIGH, it disrupts UART comms
+}
+
+static void led_blink(int times, int on_ms = 120, int off_ms = 120) {
+  pinMode(PIN_LED1, OUTPUT);
+  for (int i = 0; i < times; i++) {
+    digitalWrite(PIN_LED1, HIGH);
+    delay(on_ms);
+    digitalWrite(PIN_LED1, LOW);
+    delay(off_ms);
+  }
+}
+
+// ... dot dot dot — dash dash dash — dot dot dot
+static void led_sos() {
+  pinMode(PIN_LED1, OUTPUT);
+  const int dot = 150, dash = 450, gap = 150, letter_gap = 400, repeat_gap = 1000;
+  for (int repeat = 0; repeat < 3; repeat++) {
+    // S: 3 dots
+    for (int i = 0; i < 3; i++) { digitalWrite(PIN_LED1, HIGH); delay(dot); digitalWrite(PIN_LED1, LOW); delay(gap); }
+    delay(letter_gap);
+    // O: 3 dashes
+    for (int i = 0; i < 3; i++) { digitalWrite(PIN_LED1, HIGH); delay(dash); digitalWrite(PIN_LED1, LOW); delay(gap); }
+    delay(letter_gap);
+    // S: 3 dots
+    for (int i = 0; i < 3; i++) { digitalWrite(PIN_LED1, HIGH); delay(dot); digitalWrite(PIN_LED1, LOW); delay(gap); }
+    delay(repeat_gap);
+  }
+}
+
+static void configure_pd_12v() {
   digitalWrite(PIN_CFG1, LOW);
   digitalWrite(PIN_CFG2, LOW);
-  digitalWrite(PIN_CFG3, HIGH);  // 12V profile per PD-Stepper examples
+  digitalWrite(PIN_CFG3, HIGH);
+}
 
+static void configure_pd_9v() {
+  digitalWrite(PIN_CFG1, LOW);
+  digitalWrite(PIN_CFG2, LOW);
+  digitalWrite(PIN_CFG3, LOW);
+}
+
+static void configure_pd_5v() {
+  digitalWrite(PIN_CFG1, HIGH);
+  digitalWrite(PIN_CFG2, LOW);
+  digitalWrite(PIN_CFG3, LOW);
+}
+
+static void init_hardware() {
+  early_pd_init();
   pinMode(PIN_PG, INPUT);
+  pinMode(PIN_VBUS, INPUT);
+  analogSetPinAttenuation(PIN_VBUS, ADC_11db);
   pinMode(PIN_MS1, OUTPUT);
   pinMode(PIN_MS2, OUTPUT);
   pinMode(PIN_SPREAD, OUTPUT);
-  digitalWrite(PIN_MS1, LOW);   // 1/64 microstepping (MS2=1, MS1=0)
-  digitalWrite(PIN_MS2, HIGH);
+  digitalWrite(PIN_MS1, LOW);
+  digitalWrite(PIN_MS2, LOW);
   digitalWrite(PIN_SPREAD, LOW);
 
   Wire.begin(PIN_SDA, PIN_SCL);
@@ -371,37 +664,77 @@ static void init_hardware() {
   pinMode(PIN_EN, OUTPUT);
   digitalWrite(PIN_STEP, LOW);
   digitalWrite(PIN_DIR, LOW);
-  digitalWrite(PIN_EN, HIGH);
+
+  init_tmc2209();
   degrees_per_microstep = 360.0f / (STEPS_PER_REV * MICROSTEPS);
 
-  delay(500);  // allow PD negotiation before first move
+  delay(500);
 }
 
 static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
+  disconnect_wifi();
+  early_pd_init();
+  delay(1500);  // wall warts need more time for PD re-negotiation than a PC USB port
+
   if (!wait_power_good()) {
     log_line("Power not good — skipping move");
+    motor_disable();
     return false;
   }
 
+  float vbus = read_vbus_volts();
+  if (vbus < PD_MIN_VOLTS) {
+    Serial.print("VBUS too low for motor (");
+    Serial.print(vbus, 1);
+    log_line("V) — need 9V+ USB-PD charger with USB-C to USB-C cable");
+    motor_disable();
+    led_sos();
+    return false;
+  }
+
+  log_power_state("Move start:");
+
   float delta = target - current_virtual_position;
   if (fabs(delta) < degrees_per_microstep) {
-    current_virtual_position = target;
-    prefs.putFloat("virtual_pos", current_virtual_position);
+    Serial.println("Already at target — no steps needed");
     return true;
   }
 
+  float enc_before = read_as5600_degrees();
   int direction = delta > 0 ? 1 : -1;
   long steps_remaining = labs((long)(delta / degrees_per_microstep));
+  Serial.print("Steps to move: ");
+  Serial.println(steps_remaining);
+
+  // Re-apply TMC settings in case a power glitch reset the driver over UART
+  stepper_driver.setRunCurrent(TMC_RUN_CURRENT_PERCENT);
+  stepper_driver.setMicrostepsPerStep(MICROSTEPS);
+  stepper_driver.enableAutomaticCurrentScaling();
+  stepper_driver.enableStealthChop();
+
   digitalWrite(PIN_DIR, direction > 0 ? HIGH : LOW);
-  digitalWrite(PIN_EN, LOW);
+  motor_enable();
+  if (stepper_driver.hardwareDisabled()) {
+    log_line("TMC2209 still disabled after enable");
+    motor_disable();
+    return false;
+  }
 
   uint32_t start = millis();
-  const uint32_t step_delay_us = 800;
+  const uint32_t step_delay_us = 150;  // 150µs half-period = ~3.3 kHz, matches Josh's fast examples
 
   while (steps_remaining > 0) {
     if (millis() - start > timeout_ms) {
       log_line("Move timeout");
-      digitalWrite(PIN_EN, HIGH);
+      motor_disable();
+      led_sos();
+      return false;
+    }
+    if (!is_pg_good()) {
+      log_line("PG lost during move");
+      log_power_state("PG lost:");
+      motor_disable();
+      led_sos();
       return false;
     }
     digitalWrite(PIN_STEP, HIGH);
@@ -411,28 +744,64 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
     steps_remaining--;
   }
 
-  digitalWrite(PIN_EN, HIGH);
+  motor_disable();
   current_virtual_position = target;
   prefs.putFloat("virtual_pos", current_virtual_position);
 
-  float enc = read_as5600_degrees();
-  log_f("Encoder deg: ", enc);
+  float enc_after = read_as5600_degrees();
+  log_f("Encoder deg before: ", enc_before);
+  log_f("Encoder deg after: ", enc_after);
+  if (enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
+    log_line("Encoder did not move — treating as failure");
+    return false;
+  }
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// Sleep
+// Wait / sleep — awake wait keeps USB wall warts from shutting off
 // ---------------------------------------------------------------------------
 
-static void deep_sleep_seconds(uint64_t seconds) {
+static void board_sleep_seconds(uint64_t seconds) {
   if (seconds < 1) seconds = 1;
-  Serial.print("Sleeping ");
+  Serial.print("Waiting ");
   Serial.print((unsigned long)seconds);
-  Serial.println(" s");
   Serial.flush();
   disconnect_wifi();
+
+#if USE_AWAKE_WAIT
+  Serial.println(" s (awake — wall wart safe)");
+  Serial.flush();
+  const uint32_t start = millis();
+  const uint32_t duration_ms = (uint32_t)(seconds * 1000ULL);
+  uint32_t last_blink = 0;
+  while (millis() - start < duration_ms) {
+    if (millis() - last_blink > 30000) {
+      led_blink(1, 80, 0);
+      last_blink = millis();
+    }
+    delay(200);
+  }
+#else
+#if USE_LIGHT_SLEEP
+  Serial.println(" s (light sleep)");
+#else
+  Serial.println(" s (deep sleep)");
+#endif
+  Serial.flush();
+#if USE_LIGHT_SLEEP
+  esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
+  esp_light_sleep_start();
+#else
   esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
   esp_deep_sleep_start();
+#endif
+#endif
+}
+
+static void board_restart_after(uint64_t seconds) {
+  board_sleep_seconds(seconds);
+  esp_restart();
 }
 
 static void wait_until(time_t target) {
@@ -441,12 +810,37 @@ static void wait_until(time_t target) {
   }
 }
 
+// Negotiate PD and warn if voltage is too low for the motor.
+// Called during the early-wake window so the user has time to swap chargers.
+static bool check_pd_voltage_early() {
+  early_pd_init();
+  delay(1500);
+  if (!wait_power_good()) {
+    log_line("PD: no power good signal");
+    return false;
+  }
+  float v = read_vbus_volts();
+  if (v < PD_MIN_VOLTS) {
+    Serial.print("WARNING: VBUS only ");
+    Serial.print(v, 1);
+    log_line("V — motor needs 9V+ USB-PD charger with USB-C to USB-C cable");
+    led_sos();
+    return false;
+  }
+  Serial.print("PD voltage OK: ");
+  Serial.print(v, 1);
+  Serial.println("V");
+  return true;
+}
+
 static void sleep_until_event(time_t event_time) {
   time_t now = time(nullptr);
   int64_t wake_at = event_time - WAKE_EARLY_SEC;
   int64_t delta = wake_at - now;
   if (delta > 2) {
-    deep_sleep_seconds((uint64_t)delta);
+    board_sleep_seconds((uint64_t)delta);
+    early_pd_init();
+    delay(300);
   }
 }
 
@@ -455,15 +849,22 @@ static void sleep_until_event(time_t event_time) {
 // ---------------------------------------------------------------------------
 
 void setup() {
+  early_pd_init();
+  delay(2000);  // let CH224K finish PD negotiation before Wi-Fi load
+
   Serial.begin(115200);
-  // USB CDC on ESP32-S3 needs time to enumerate before first prints
-  delay(2000);
+  delay(USB_SERIAL_WAIT_MS);
+
+  init_hardware();
+  led_blink(2);
 
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
   Serial.print("Wake cause: ");
   Serial.println((int)cause);
+  if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
+    log_line("Power-on boot — syncing time and fetching schedule");
+  }
 
-  init_hardware();
   prefs.begin(PREFS_NS, false);
   current_virtual_position = prefs.getFloat("virtual_pos", CLOSED_VIRTUAL_ANGLE);
 
@@ -485,7 +886,7 @@ void setup() {
       disconnect_wifi();
     }
     if (time(nullptr) < 1700000000) {
-      deep_sleep_seconds(300);
+      board_restart_after(300);
     }
   }
 
@@ -494,13 +895,13 @@ void setup() {
   String schedule_json;
   if (!load_schedule_json(schedule_json)) {
     log_line("No schedule available");
-    deep_sleep_seconds(3600);
+    board_restart_after(3600);
   }
 
   ScheduleEvent next = find_next_event(schedule_json);
   if (!next.valid) {
     log_line("No upcoming events — sleep 24h");
-    deep_sleep_seconds(24 * 3600);
+    board_restart_after(24 * 3600);
   }
 
   time_t now = time(nullptr);
@@ -509,7 +910,7 @@ void setup() {
   log_time("Event time: ", next.timestamp);
 
   if (now < next.timestamp - WAKE_EARLY_SEC) {
-    Serial.print("Sleeping until ");
+    Serial.print("Waiting until ");
     Serial.print((unsigned long)(next.timestamp - WAKE_EARLY_SEC - now));
     Serial.println(" s before event");
     sleep_until_event(next.timestamp);
@@ -517,6 +918,7 @@ void setup() {
       sync_ntp();
       disconnect_wifi();
     }
+    check_pd_voltage_early();  // warn now if charger won't support motor move
   }
 
   now = time(nullptr);
@@ -525,7 +927,7 @@ void setup() {
   if (now > next.timestamp + GRACE_PERIOD_SEC) {
     log_line("Event missed — marking done");
     mark_event_done(next.id);
-    deep_sleep_seconds(5);
+    board_restart_after(5);
   }
 
   if (now < next.timestamp) {
@@ -541,6 +943,8 @@ void setup() {
 
   Serial.print("Executing ");
   Serial.println(next.action);
+  led_blink(5, 80, 80);
+
   uint32_t timeout = next.expected_duration_s * 1000UL;
   if (timeout < 30000) timeout = 30000;
   if (timeout > MOVE_TIMEOUT_MS) timeout = MOVE_TIMEOUT_MS;
@@ -549,11 +953,13 @@ void setup() {
   if (ok) {
     mark_event_done(next.id);
     log_line("Event complete");
+    led_blink(10, 50, 50);
   } else {
     log_line("Event failed — will retry next wake");
+    led_blink(3, 500, 200);
   }
 
-  deep_sleep_seconds(5);
+  board_restart_after(5);
 }
 
 void loop() {

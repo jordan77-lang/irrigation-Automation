@@ -47,6 +47,8 @@
     .dot.warn { background: var(--warn); }
     .dot.off { background: #bbb; }
     .status-bar .right { margin-left: auto; color: var(--muted); font-size: 0.82rem; }
+    .status-stack { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 1rem; }
+    .status-stack .status-bar { margin-bottom: 0; }
 
     .card {
       background: var(--card); border: 1px solid var(--border);
@@ -187,10 +189,17 @@
     <p>Pull SRP times, review, then publish to your valve.</p>
   </header>
 
-  <div class="status-bar" id="statusBar" title="Tap to refresh">
-    <span class="dot off" id="statusDot"></span>
-    <span id="statusText">Checking schedule…</span>
-    <span class="right" id="statusAge"></span>
+  <div class="status-stack">
+    <div class="status-bar" id="statusBar" title="Tap to refresh">
+      <span class="dot off" id="statusDot"></span>
+      <span id="statusText">Checking schedule…</span>
+      <span class="right" id="statusAge"></span>
+    </div>
+    <div class="status-bar" id="deviceStatusBar" title="Updates when the stepper downloads the signed schedule">
+      <span class="dot off" id="deviceDot"></span>
+      <span id="deviceStatusText">Checking stepper…</span>
+      <span class="right" id="deviceStatusAge"></span>
+    </div>
   </div>
 
   <div class="card">
@@ -247,6 +256,7 @@
         <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation" target="_blank" rel="noopener">Classic token</a>
         needs <code>repo</code> + <code>workflow</code>.
         Fine-grained needs Contents + Actions write on this repo.
+        The stepper tell also needs a device token in firmware (<code>GITHUB_STATUS_TOKEN</code> in config.h).
       </p>
       <div class="row">
         <div>
@@ -280,7 +290,9 @@
   const SRP_NAME     = "245 w 9th place";
 
   let liveScheduleData = null;
+  let deviceStatusData = null;
   let lastSrpPreviewAt = null;
+  let devicePollTimer = null;
 
   function githubApiHeaders(token) {
     return {
@@ -702,6 +714,7 @@
       if (putRes.ok) {
         toast("Published! Signing in ~1 min. ✓", 5000);
         setTimeout(checkFeed, 8000);
+        startDevicePoll();
       } else {
         const err = await putRes.json();
         toast(`GitHub: ${formatGitHubError(err, "publish")}`);
@@ -714,14 +727,70 @@
     }
   }
 
+  function renderDeviceStatus() {
+    const dot = document.getElementById("deviceDot");
+    const text = document.getElementById("deviceStatusText");
+    const age = document.getElementById("deviceStatusAge");
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+
+    if (!liveScheduleData?.generated_at) {
+      dot.className = "dot off";
+      text.textContent = "Stepper status unknown";
+      age.textContent = "";
+      return;
+    }
+
+    const ack = deviceStatusData?.[deviceId];
+    const synced = ack?.schedule_generated_at === liveScheduleData.generated_at;
+
+    if (synced) {
+      dot.className = "dot ok";
+      text.textContent = "On stepper ✓";
+      if (ack.received_at) {
+        age.textContent = `Received ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}`;
+      }
+      stopDevicePoll();
+      return;
+    }
+
+    if (ack?.schedule_generated_at) {
+      dot.className = "dot warn";
+      text.textContent = "Stepper has older schedule";
+      age.textContent = ack.received_at
+        ? `Last sync ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}`
+        : "";
+      return;
+    }
+
+    dot.className = "dot warn";
+    text.textContent = "Waiting for stepper…";
+    age.textContent = "Plug in or reboot device on Wi‑Fi";
+  }
+
+  function stopDevicePoll() {
+    if (devicePollTimer) {
+      clearInterval(devicePollTimer);
+      devicePollTimer = null;
+    }
+  }
+
+  function startDevicePoll() {
+    stopDevicePoll();
+    devicePollTimer = setInterval(checkFeed, 20000);
+    setTimeout(checkFeed, 5000);
+  }
+
   async function checkFeed() {
     const dot = document.getElementById("statusDot");
     const text = document.getElementById("statusText");
     const age = document.getElementById("statusAge");
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+
     try {
-      const [jr, sr] = await Promise.all([
+      const [jr, sr, dr] = await Promise.all([
         fetch(`${RAW_BASE}/schedules.json`, { cache: "no-store" }),
         fetch(`${RAW_BASE}/schedules.json.sig`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/device_status.json`, { cache: "no-store" }),
       ]);
       if (!jr.ok || !sr.ok) throw new Error("not found");
       const sig = (await sr.text()).trim();
@@ -736,13 +805,25 @@
         age.textContent = new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
       }
 
+      if (dr.ok) {
+        try { deviceStatusData = await dr.json(); } catch { deviceStatusData = null; }
+      } else {
+        deviceStatusData = null;
+      }
+
       renderLiveSchedule(data);
+      renderDeviceStatus();
+
+      const synced = deviceStatusData?.[deviceId]?.schedule_generated_at === data.generated_at;
+      if (data.generated_at && !synced && !devicePollTimer) startDevicePoll();
     } catch {
       liveScheduleData = null;
+      deviceStatusData = null;
       dot.className = "dot warn";
       text.textContent = "No signed schedule yet";
       age.textContent = "";
       document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">Nothing on GitHub yet.</li>';
+      renderDeviceStatus();
     }
   }
 
@@ -775,7 +856,10 @@
         const st = loadSettings();
         st[id] = document.getElementById(id).value;
         saveSettings(st);
-        if (id === "deviceId" && liveScheduleData) renderLiveSchedule(liveScheduleData);
+        if (id === "deviceId") {
+          if (liveScheduleData) renderLiveSchedule(liveScheduleData);
+          renderDeviceStatus();
+        }
       });
     });
 
