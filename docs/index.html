@@ -226,7 +226,7 @@
       <a class="btn btn-ghost" id="viewSrpLink" href="#" target="_blank" rel="noopener">View all on web</a>
     </div>
     <p class="token-hint" style="margin-top:0.75rem;margin-bottom:0;">
-      Pull needs a GitHub token (repo scope) — SRP blocks direct browser access. Times are Arizona (SRP) converted to your local timezone.
+      Pull from SRP runs a GitHub Action (browser cannot call SRP directly). Your token needs <strong>Actions: Read and write</strong> in addition to Contents — see Device settings below.
     </p>
     <div id="srpResults"></div>
   </div>
@@ -276,10 +276,15 @@
       </div>
     </div>
 
-    <label for="ghToken">GitHub token (for one-click publish)</label>
-    <input id="ghToken" type="password" placeholder="ghp_…  (needs repo write scope)" autocomplete="off" />
+    <label for="ghToken">GitHub token (publish + SRP pull)</label>
+    <input id="ghToken" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" />
     <p class="token-hint">
-      Create at <a href="https://github.com/settings/tokens/new?scopes=repo&description=Irrigation+publish" target="_blank" rel="noopener">github.com/settings/tokens</a> — stored only in your browser.
+      <strong>Classic token:</strong>
+      <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation+editor" target="_blank" rel="noopener">create with <code>repo</code> + <code>workflow</code></a> scopes.<br>
+      <strong>Fine-grained token:</strong>
+      <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">create for this repo</a>
+      with <strong>Contents: Read and write</strong> and <strong>Actions: Read and write</strong>.<br>
+      Stored only in your browser. “Resource not accessible” almost always means a missing permission above.
     </p>
   </div>
 
@@ -327,6 +332,26 @@
 
   let liveScheduleData = null;
   let lastSrpPreviewAt = null;
+
+  function githubApiHeaders(token) {
+    return {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+  }
+
+  function formatGitHubError(err, action) {
+    const msg = err?.message || String(err);
+    if (/resource not accessible/i.test(msg)) {
+      if (action === "srp") {
+        return `${msg} — token needs Actions: Read and write (classic: add workflow scope).`;
+      }
+      return `${msg} — token needs Contents: Read and write on ${REPO} (classic: repo scope).`;
+    }
+    return msg;
+  }
 
   function roundToQuarterHour(date) {
     const d = new Date(date);
@@ -470,16 +495,9 @@
     const token = document.getElementById("ghToken").value.trim();
     if (!token) throw new Error("GitHub token required for SRP pull");
 
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      Accept: "application/vnd.github+json",
-      "Content-Type": "application/json",
-      "X-GitHub-Api-Version": "2022-11-28",
-    };
-
     const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/srp_pull.yml/dispatches`, {
       method: "POST",
-      headers,
+      headers: githubApiHeaders(token),
       body: JSON.stringify({
         ref: "main",
         inputs: {
@@ -494,7 +512,7 @@
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || `GitHub Actions HTTP ${res.status}`);
+      throw new Error(formatGitHubError(err, "srp"));
     }
   }
 
@@ -872,7 +890,7 @@
 
       const content = JSON.stringify(payload, null, 2);
       const b64 = btoa(unescape(encodeURIComponent(content)));
-      const headers = { "Authorization": `token ${token}`, "Content-Type": "application/json" };
+      const headers = githubApiHeaders(token);
 
       const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, { headers });
       const sha = getRes.ok ? (await getRes.json()).sha : undefined;
@@ -891,7 +909,7 @@
         setTimeout(checkFeed, 8000);
       } else {
         const err = await putRes.json();
-        toast(`GitHub error: ${err.message}`);
+        toast(`GitHub error: ${formatGitHubError(err, "publish")}`);
       }
     } catch (e) {
       toast(`Error: ${e.message}`);
