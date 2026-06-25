@@ -1,0 +1,62 @@
+{
+  "fetched_at": "2026-06-25T17:58:37.982Z",
+  "source": "srpnet.com",
+  "valve_account": "0072309",
+  "accounts": [
+    {
+      "account": "0072499",
+      "name": "Mark & Brian",
+      "onDateTime": "2026-06-18T03:30:00",
+      "offDateTime": "2026-06-18T04:15:00",
+      "status": "Delivered",
+      "address": "245 W 9TH PL N",
+      "notice": "Use SRP's Water Mobile App to order water, view schedules, get notifications of delivery, private system issues and more. Download through Apple App Store or Google Play. ",
+      "openUtc": "2026-06-18T10:30:00Z",
+      "closeUtc": "2026-06-18T11:15:00Z"
+    },
+    {
+      "account": "0072849",
+      "name": "Mai",
+      "onDateTime": "2026-06-18T05:00:00",
+      "offDateTime": "2026-06-18T05:45:00",
+      "status": "Delivered",
+      "address": "239 W 9TH PL N",
+      "notice": "Use SRP's Water Mobile App to order water, view schedules, get notifications of delivery, private system issues and more. Download through Apple App Store or Google Play. ",
+      "openUtc": "2026-06-18T12:00:00Z",
+      "closeUtc": "2026-06-18T12:45:00Z"
+    },
+    {
+      "account": "0072239",
+      "name": "Shaun & Parv - 320",
+      "onDateTime": "2026-06-17T17:30:00",
+      "offDateTime": "2026-06-17T18:15:00",
+      "status": "Delivered",
+      "address": "320 W 9TH PL S",
+      "notice": "Use SRP's Water Mobile App to order water, view schedules, get notifications of delivery, private system issues and more. Download through Apple App Store or Google Play. ",
+      "openUtc": "2026-06-18T00:30:00Z",
+      "closeUtc": "2026-06-18T01:15:00Z"
+    },
+    {
+      "account": "0072309",
+      "name": "316",
+      "onDateTime": "2026-06-17T18:15:00",
+      "offDateTime": "2026-06-17T19:00:00",
+      "status": "Delivered",
+      "address": "316 W 9TH PL S",
+      "notice": "Use SRP's Water Mobile App to order water, view schedules, get notifications of delivery, private system issues and more. Download through Apple App Store or Google Play. ",
+      "openUtc": "2026-06-18T01:15:00Z",
+      "closeUtc": "2026-06-18T02:00:00Z"
+    }
+  ],
+  "selected": {
+    "account": "0072309",
+    "name": "316",
+    "onDateTime": "2026-06-17T18:15:00",
+    "offDateTime": "2026-06-17T19:00:00",
+    "status": "Delivered",
+    "address": "316 W 9TH PL S",
+    "notice": "Use SRP's Water Mobile App to order water, view schedules, get notifications of delivery, private system issues and more. Download through Apple App Store or Google Play. ",
+    "openUtc": "2026-06-18T01:15:00Z",
+    "closeUtc": "2026-06-18T02:00:00Z"
+  }
+}

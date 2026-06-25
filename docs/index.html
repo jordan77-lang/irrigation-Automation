@@ -3,321 +3,943 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Irrigation Schedule</title>
+  <title>Irrigation Control</title>
   <style>
     :root {
-      --bg: #f4f7f4;
+      --bg: #f0f4f0;
       --card: #ffffff;
       --accent: #2d6a4f;
       --accent-dark: #1b4332;
-      --border: #d8e2dc;
-      --text: #1d1d1d;
+      --accent-light: #d8ede2;
+      --danger: #c0392b;
+      --warn: #bc6c25;
+      --border: #dde6e0;
+      --text: #1a1a1a;
       --muted: #5c6b63;
+      --radius: 12px;
+      --shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
-      font-family: "Segoe UI", system-ui, sans-serif;
+      font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
       background: var(--bg);
       color: var(--text);
-      margin: 0;
-      padding: 1.5rem;
+      min-height: 100vh;
+      padding: 1.5rem 1rem 3rem;
       line-height: 1.5;
     }
-    .wrap { max-width: 760px; margin: 0 auto; }
-    h1 { margin: 0 0 0.25rem; color: var(--accent-dark); }
-    .sub { color: var(--muted); margin-bottom: 1.5rem; }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 1.25rem;
-      margin-bottom: 1rem;
-    }
-    label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
-    input, select, button {
-      font: inherit;
-      padding: 0.5rem 0.65rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-    }
-    input, select { width: 100%; margin-bottom: 0.75rem; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
-    @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
-    button {
-      background: var(--accent);
-      color: #fff;
-      border: none;
-      cursor: pointer;
-      font-weight: 600;
-    }
-    button:hover { background: var(--accent-dark); }
-    button.secondary { background: #fff; color: var(--accent-dark); border: 1px solid var(--border); }
-    .window {
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem;
-      margin-bottom: 0.75rem;
-      background: #fafcfa;
-    }
-    .window h3 { margin: 0 0 0.75rem; font-size: 1rem; }
-    .actions { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
-    .note {
+    .wrap { max-width: 680px; margin: 0 auto; }
+
+    header { margin-bottom: 1.5rem; }
+    header h1 { font-size: 1.6rem; color: var(--accent-dark); }
+    header p { color: var(--muted); font-size: 0.95rem; margin-top: 0.2rem; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 0.6rem;
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.85rem 1.1rem;
+      margin-bottom: 1rem; box-shadow: var(--shadow);
       font-size: 0.9rem;
-      color: var(--muted);
-      background: #eef6f0;
-      border-radius: 8px;
-      padding: 0.75rem 1rem;
     }
-    .note a { color: var(--accent-dark); }
-    code { background: #eef1ee; padding: 0.1rem 0.35rem; border-radius: 4px; }
-    .status-ok { color: #2d6a4f; font-weight: 600; }
-    .status-warn { color: #bc6c25; font-weight: 600; }
-    .links { margin: 0.5rem 0 0; padding-left: 1.2rem; }
-    .links li { margin: 0.35rem 0; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .dot.ok { background: #2d9d5e; }
+    .dot.warn { background: var(--warn); }
+    .dot.off { background: #bbb; }
+    .status-bar .right { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+
+    .card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 1.25rem 1.4rem;
+      margin-bottom: 1rem; box-shadow: var(--shadow);
+    }
+    .card-title {
+      font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem;
+    }
+    .card-hint { font-size: 0.82rem; color: var(--muted); margin: -0.5rem 0 1rem; }
+
+    label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.3rem; }
+    input, select {
+      width: 100%; padding: 0.55rem 0.75rem;
+      border: 1.5px solid var(--border); border-radius: 8px;
+      font: inherit; font-size: 0.95rem; color: var(--text);
+      background: #fff; margin-bottom: 0.9rem;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus { outline: none; border-color: var(--accent); }
+    input[type="date"] { cursor: pointer; min-height: 2.75rem; }
+
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
+    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; }
+    @media (max-width: 520px) { .row, .row-3 { grid-template-columns: 1fr; } }
+
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.9rem; }
+    .chip {
+      padding: 0.35rem 0.75rem; border-radius: 999px; border: 1.5px solid var(--border);
+      background: #fff; font: inherit; font-size: 0.85rem; font-weight: 600;
+      color: var(--accent-dark); cursor: pointer; transition: background 0.15s, border-color 0.15s;
+    }
+    .chip:hover { background: var(--accent-light); border-color: var(--accent); }
+    .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .preview-box {
+      background: var(--accent-light); border: 1px solid #b2d8c2;
+      border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.9rem;
+      font-size: 0.92rem;
+    }
+    .preview-box .line { display: flex; gap: 0.5rem; align-items: baseline; margin-bottom: 0.25rem; }
+    .preview-box .tag {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      padding: 0.15rem 0.45rem; border-radius: 4px; min-width: 3.2rem; text-align: center;
+    }
+    .tag.open { background: #2d6a4f; color: #fff; }
+    .tag.close { background: #52796f; color: #fff; }
+    .preview-box .utc { font-size: 0.78rem; color: var(--muted); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 0.4rem;
+      padding: 0.6rem 1.1rem; border-radius: 8px; border: none;
+      font: inherit; font-size: 0.95rem; font-weight: 600;
+      cursor: pointer; transition: background 0.15s, opacity 0.15s;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
+    .btn-ghost { background: transparent; color: var(--accent-dark); border: 1.5px solid var(--border); }
+    .btn-ghost:hover:not(:disabled) { background: var(--accent-light); }
+    .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.85rem; }
+    .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.25rem; }
+
+    .token-hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.6rem; margin-bottom: 0.9rem; }
+    .token-hint a { color: var(--accent-dark); }
+
+    /* Schedule table */
+    .schedule-list { list-style: none; }
+    .schedule-item {
+      display: flex; align-items: flex-start; gap: 0.75rem;
+      padding: 0.65rem 0; border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    .schedule-item:last-child { border-bottom: none; }
+    .schedule-item.past { opacity: 0.5; }
+    .schedule-item.next { background: var(--accent-light); margin: 0 -0.5rem; padding: 0.65rem 0.5rem; border-radius: 8px; border-bottom: none; }
+    .schedule-item .when { flex: 1; }
+    .schedule-item .action-badge {
+      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+      padding: 0.2rem 0.5rem; border-radius: 4px; white-space: nowrap;
+    }
+    .action-badge.open { background: #2d6a4f; color: #fff; }
+    .action-badge.close { background: #52796f; color: #fff; }
+    .schedule-item .rel { font-size: 0.8rem; color: var(--muted); margin-top: 0.1rem; }
+    .empty-sched { color: var(--muted); font-size: 0.9rem; padding: 0.5rem 0; }
+
+    #toast {
+      position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
+      background: #1a1a1a; color: #fff; padding: 0.7rem 1.3rem;
+      border-radius: 10px; font-size: 0.9rem; font-weight: 500;
+      opacity: 0; transition: opacity 0.2s; pointer-events: none; white-space: nowrap;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.2);
+    }
+    #toast.show { opacity: 1; }
+
+    .spin {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
+      border-radius: 50%; animation: spin 0.6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .field-error { color: var(--danger); font-size: 0.82rem; margin: -0.5rem 0 0.75rem; display: none; }
+    .field-error.show { display: block; }
+
+    .srp-result {
+      background: #f8faf9; border: 1px solid var(--border); border-radius: 8px;
+      padding: 0.75rem 0.9rem; margin-bottom: 0.75rem; font-size: 0.88rem;
+    }
+    .srp-result .title { font-weight: 700; margin-bottom: 0.2rem; }
+    .srp-result .meta { color: var(--muted); font-size: 0.82rem; }
+
+    .modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
+      display: none; align-items: center; justify-content: center;
+      padding: 1rem; z-index: 100;
+    }
+    .modal-backdrop.show { display: flex; }
+    .modal {
+      background: var(--card); border-radius: var(--radius); padding: 1.25rem;
+      max-width: 420px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+    }
+    .modal h3 { margin-bottom: 0.75rem; font-size: 1.05rem; }
+    .modal-pick {
+      display: block; width: 100%; text-align: left; margin-bottom: 0.5rem;
+      padding: 0.65rem 0.85rem; border: 1.5px solid var(--border); border-radius: 8px;
+      background: #fff; cursor: pointer; font: inherit;
+    }
+    .modal-pick:hover { border-color: var(--accent); background: var(--accent-light); }
+    .modal-pick .sub { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>Flood Irrigation Schedule</h1>
-    <p class="sub">Set open and close times for your PD-Stepper. The field device fetches the signed schedule from GitHub over Wi‑Fi.</p>
+<div class="wrap">
 
-    <div class="card note">
-      <strong>First-time setup</strong>
-      <ol class="links">
-        <li>Add GitHub Actions secret <code>SIGN_KEY</code> —
-          <a href="https://github.com/jordan77-lang/irrigation-Automation/settings/secrets/actions" target="_blank" rel="noopener">repo secrets</a></li>
-        <li>Enable Pages (source: GitHub Actions) —
-          <a href="https://github.com/jordan77-lang/irrigation-Automation/settings/pages" target="_blank" rel="noopener">Pages settings</a></li>
-        <li>Build schedule below → publish to
-          <a href="https://github.com/jordan77-lang/irrigation-Automation/edit/main/schedules/manual_events.json" target="_blank" rel="noopener">schedules/manual_events.json</a></li>
-        <li>Confirm workflow ran —
-          <a href="https://github.com/jordan77-lang/irrigation-Automation/actions" target="_blank" rel="noopener">Actions</a></li>
-      </ol>
-      <p style="margin: 0.75rem 0 0;">Schedule feed: <span id="feedStatus">checking…</span></p>
-    </div>
+  <header>
+    <h1>Irrigation Control</h1>
+    <p>Set open and close times when the district announces irrigation — publishes to your device.</p>
+  </header>
 
-    <div class="card">
-      <label for="deviceId">Device ID</label>
-      <input id="deviceId" value="pd01" />
-
-      <label for="openTurns">Valve open (full turns)</label>
-      <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
-
-      <div class="actions">
-        <button type="button" id="addWindow">Add irrigation window</button>
-      </div>
-    </div>
-
-    <div id="windows"></div>
-
-    <div class="card">
-      <div class="actions">
-        <button type="button" id="download">Download manual_events.json</button>
-        <button type="button" class="secondary" id="copyJson">Copy JSON</button>
-      </div>
-      <p class="note" style="margin-top: 1rem;">
-        <strong>Publish:</strong> Click
-        <a href="https://github.com/jordan77-lang/irrigation-Automation/edit/main/schedules/manual_events.json" target="_blank" rel="noopener">edit manual_events.json</a>,
-        paste the copied JSON, and commit. GitHub Actions signs and publishes
-        <code>schedules.json</code> for your device.
-      </p>
-    </div>
+  <div class="status-bar">
+    <span class="dot off" id="statusDot"></span>
+    <span id="statusText">Checking schedule…</span>
+    <span class="right" id="statusAge"></span>
   </div>
 
-  <script>
-    const STORAGE_KEY = "irrigation_windows_v1";
+  <!-- Live schedule on device -->
+  <div class="card">
+    <div class="card-title">Current schedule on device</div>
+    <p class="card-hint">What your PD-Stepper will run (signed schedule from GitHub).</p>
+    <ul class="schedule-list" id="liveSchedule">
+      <li class="empty-sched">Loading…</li>
+    </ul>
+    <button class="btn btn-ghost btn-sm" id="refreshBtn" type="button">Refresh</button>
+    <button class="btn btn-ghost btn-sm" id="loadFromLiveBtn" type="button" style="margin-left:0.4rem;">Copy into editor</button>
+  </div>
 
-    function defaultWindows() {
-      return [{
-        label: "Window 1",
-        openLocal: "",
-        closeLocal: "",
-        repeatWeeks: 12
-      }];
+  <!-- SRP pull -->
+  <div class="card">
+    <div class="card-title">SRP water schedule</div>
+    <p class="card-hint">
+      Pull gate open/close times from SRP when the district posts your order.
+      Uses the same API as
+      <a href="https://github.com/mrbdahlem/irrigation" target="_blank" rel="noopener" style="color:var(--accent-dark);">mrbdahlem/irrigation</a>
+      via <a href="https://irrigation.briandahlem.com/" target="_blank" rel="noopener" style="color:var(--accent-dark);">irrigation.briandahlem.com</a>.
+    </p>
+
+    <label for="srpAccounts">SRP account numbers</label>
+    <input id="srpAccounts" placeholder="0072499,0072849,0072239,0072309" />
+
+    <label for="srpValveAccount">This valve's account</label>
+    <select id="srpValveAccount"></select>
+
+    <div class="btn-row">
+      <button class="btn btn-primary" id="pullSrpBtn" type="button">Pull from SRP</button>
+      <button class="btn btn-ghost" id="pullSrpPublishBtn" type="button">Pull &amp; publish</button>
+      <a class="btn btn-ghost" id="viewSrpLink" href="#" target="_blank" rel="noopener">View all on web</a>
+    </div>
+    <p class="token-hint" style="margin-top:0.75rem;margin-bottom:0;">
+      Pull needs a GitHub token (repo scope) — SRP blocks direct browser access. Times are Arizona (SRP) converted to your local timezone.
+    </p>
+    <div id="srpResults"></div>
+  </div>
+
+  <!-- New irrigation run -->
+  <div class="card">
+    <div class="card-title">Set next irrigation</div>
+    <p class="card-hint">Times use your phone/computer timezone. The device runs on UTC automatically.</p>
+
+    <label for="irrDate">Irrigation date</label>
+    <div class="chip-row" id="dateChips">
+      <button type="button" class="chip" data-date="today">Today</button>
+      <button type="button" class="chip" data-date="tomorrow">Tomorrow</button>
+    </div>
+    <input type="date" id="irrDate" />
+
+    <div class="row">
+      <div>
+        <label for="openTime">Open valve at</label>
+        <select id="openTime"></select>
+      </div>
+      <div>
+        <label for="closeTime">Close valve at</label>
+        <select id="closeTime"></select>
+      </div>
+    </div>
+
+    <div class="preview-box" id="previewBox">
+      <div class="line"><span class="tag open">Open</span> <span id="previewOpen">—</span></div>
+      <div class="line"><span class="tag close">Close</span> <span id="previewClose">—</span></div>
+      <div class="utc" id="previewUtc"></div>
+    </div>
+    <p class="field-error" id="timeError">Close must be after open on the same day.</p>
+  </div>
+
+  <!-- Settings -->
+  <div class="card">
+    <div class="card-title">Device settings</div>
+    <div class="row">
+      <div>
+        <label for="deviceId">Device ID</label>
+        <input id="deviceId" value="pd01" />
+      </div>
+      <div>
+        <label for="openTurns">Valve open turns</label>
+        <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
+      </div>
+    </div>
+
+    <label for="ghToken">GitHub token (for one-click publish)</label>
+    <input id="ghToken" type="password" placeholder="ghp_…  (needs repo write scope)" autocomplete="off" />
+    <p class="token-hint">
+      Create at <a href="https://github.com/settings/tokens/new?scopes=repo&description=Irrigation+publish" target="_blank" rel="noopener">github.com/settings/tokens</a> — stored only in your browser.
+    </p>
+  </div>
+
+  <!-- Publish -->
+  <div class="card">
+    <div class="card-title">Publish schedule</div>
+    <div class="btn-row">
+      <button class="btn btn-primary" id="publishBtn">Publish to GitHub</button>
+    </div>
+    <p style="font-size:0.82rem;color:var(--muted);margin-top:0.9rem;">
+      Publish replaces the device schedule with this open/close pair. GitHub Actions signs it within ~1 minute.
+    </p>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<div class="modal-backdrop" id="srpModal">
+  <div class="modal">
+    <h3>Which SRP account?</h3>
+    <div id="srpModalList"></div>
+    <button class="btn btn-ghost btn-sm" type="button" id="srpModalCancel" style="margin-top:0.5rem;">Cancel</button>
+  </div>
+</div>
+
+<script>
+  const DRAFT_KEY    = "irr_draft_v3";
+  const SETTINGS_KEY = "irr_settings_v1";
+  const REPO         = "jordan77-lang/irrigation-Automation";
+  const FILE_PATH    = "schedules/manual_events.json";
+  const RAW_BASE     = `https://raw.githubusercontent.com/${REPO}/main/schedules`;
+  const OPEN_MOVE_S  = 300;
+  const CLOSE_MOVE_S = 60;
+  const SRP_PROXY    = "https://irrigation.briandahlem.com";
+  const SRP_API      = "https://water.gateway.srpnet.com/schedule/account";
+  const ARIZONA_OFFSET = "-07:00";
+  const DEFAULT_SRP_ACCOUNTS = "0072499,0072849,0072239,0072309";
+  const SRP_NAMES = {
+    "0072499": "Mark & Brian",
+    "0072849": "Mai",
+    "0072239": "Shaun & Parv - 320",
+    "0072309": "316",
+  };
+
+  let liveScheduleData = null;
+  let lastSrpPreviewAt = null;
+
+  function roundToQuarterHour(date) {
+    const d = new Date(date);
+    d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
+    return d;
+  }
+
+  function srpLocalToDraft(onDateTime, offDateTime) {
+    const open = roundToQuarterHour(new Date(`${onDateTime}${ARIZONA_OFFSET}`));
+    const close = roundToQuarterHour(new Date(`${offDateTime}${ARIZONA_OFFSET}`));
+    return {
+      date: toDateInputValue(open),
+      openTime: `${String(open.getHours()).padStart(2, "0")}:${String(open.getMinutes()).padStart(2, "0")}`,
+      closeTime: `${String(close.getHours()).padStart(2, "0")}:${String(close.getMinutes()).padStart(2, "0")}`,
+    };
+  }
+
+  function getSrpAccounts() {
+    return (document.getElementById("srpAccounts").value || DEFAULT_SRP_ACCOUNTS)
+      .split(",").map(s => s.trim()).filter(Boolean);
+  }
+
+  function rebuildValveAccountSelect() {
+    const sel = document.getElementById("srpValveAccount");
+    const current = sel.value;
+    const accounts = getSrpAccounts();
+    sel.innerHTML = accounts.map(acct => {
+      const name = SRP_NAMES[acct] || acct;
+      return `<option value="${acct}">${name} (${acct})</option>`;
+    }).join("");
+    if (accounts.includes(current)) sel.value = current;
+    document.getElementById("viewSrpLink").href = `${SRP_PROXY}/${accounts.join(",")}`;
+  }
+
+  function renderSrpResults(accounts) {
+    const el = document.getElementById("srpResults");
+    if (!accounts || !accounts.length) { el.innerHTML = ""; return; }
+    el.innerHTML = accounts.filter(a => a.onDateTime || a.openDate).map(a => {
+      const open = a.openDate || new Date(`${a.onDateTime}${ARIZONA_OFFSET}`);
+      const close = a.closeDate || new Date(`${a.offDateTime}${ARIZONA_OFFSET}`);
+      return `<div class="srp-result">
+        <div class="title">${a.name || a.account} · ${a.status || "SRP"}</div>
+        <div>${open.toLocaleString()} → ${close.toLocaleString()}</div>
+        <div class="meta">${a.address || ""}</div>
+      </div>`;
+    }).join("");
+  }
+
+  function applySrpAccount(entry) {
+    if (!entry) {
+      toast("No SRP window for this account.");
+      return;
     }
+    if (entry.openDate && entry.closeDate) {
+      const o = roundToQuarterHour(entry.openDate);
+      const c = roundToQuarterHour(entry.closeDate);
+      applyDraft({
+        date: toDateInputValue(o),
+        openTime: `${String(o.getHours()).padStart(2, "0")}:${String(o.getMinutes()).padStart(2, "0")}`,
+        closeTime: `${String(c.getHours()).padStart(2, "0")}:${String(c.getMinutes()).padStart(2, "0")}`,
+      });
+    } else if (entry.onDateTime && entry.offDateTime) {
+      applyDraft(srpLocalToDraft(entry.onDateTime, entry.offDateTime));
+    } else {
+      toast(entry.error || "No SRP window for this account.");
+      return;
+    }
+    toast(`Loaded ${entry.name || entry.account} from SRP ✓`);
+  }
 
-    function loadWindows() {
+  function showSrpPicker(accounts, onPick) {
+    const list = document.getElementById("srpModalList");
+    list.innerHTML = accounts.filter(a => a.onDateTime || a.openDate).map(a => {
+      const open = a.openDate || new Date(`${a.onDateTime}${ARIZONA_OFFSET}`);
+      const close = a.closeDate || new Date(`${a.offDateTime}${ARIZONA_OFFSET}`);
+      return `<button type="button" class="modal-pick" data-acct="${a.account}">
+        <strong>${a.name || a.account}</strong>
+        <div class="sub">${open.toLocaleString()} → ${close.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}</div>
+      </button>`;
+    }).join("");
+    list.querySelectorAll(".modal-pick").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.getElementById("srpModal").classList.remove("show");
+        const pick = accounts.find(a => a.account === btn.dataset.acct);
+        onPick(pick);
+      });
+    });
+    document.getElementById("srpModal").classList.add("show");
+  }
+
+  function parseIcsDateTime(raw) {
+    if (!raw) return null;
+    const s = raw.trim();
+    if (/^\d{8}T\d{6}Z$/i.test(s)) {
+      return new Date(s.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z/i, "$1-$2-$3T$4:$5:$6Z"));
+    }
+    return null;
+  }
+
+  async function tryFetchAccountIcs(acct) {
+    const res = await fetch(`${SRP_PROXY}/${acct}.ics`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`ICS HTTP ${res.status}`);
+    const text = await res.text();
+    const block = text.split("BEGIN:VEVENT")[1];
+    if (!block) throw new Error("No VEVENT in ICS");
+    const dtstart = block.match(/DTSTART[^:]*:([^\r\n]+)/)?.[1];
+    const dtend = block.match(/DTEND[^:]*:([^\r\n]+)/)?.[1];
+    const summary = block.match(/SUMMARY:([^\r\n]+)/)?.[1] || "";
+    const start = parseIcsDateTime(dtstart);
+    const end = parseIcsDateTime(dtend);
+    if (!start || !end) throw new Error("Could not parse ICS times");
+    return {
+      account: acct,
+      name: SRP_NAMES[acct] || acct,
+      openDate: start,
+      closeDate: end,
+      status: summary.split(":").pop()?.trim() || "SRP",
+      source: "ics",
+    };
+  }
+
+  async function tryFetchAccountJson(acct) {
+    const res = await fetch(`${SRP_API}/${acct}/quickview`, { cache: "no-store" });
+    if (!res.ok) throw new Error(`API HTTP ${res.status}`);
+    const data = await res.json();
+    const on = data.onDateTime || data.displayFirstAccountScheduleDetail?.onDateTime;
+    const off = data.offDateTime || data.displayFirstAccountScheduleDetail?.offDateTime;
+    if (!on || !off) throw new Error("No times in SRP response");
+    return {
+      account: acct,
+      name: SRP_NAMES[acct] || acct,
+      onDateTime: on,
+      offDateTime: off,
+      status: data.orderStatus || "",
+      address: data.displayFirstAccountScheduleDetail?.address || "",
+      source: "api",
+    };
+  }
+
+  async function dispatchSrpWorkflow(mode) {
+    const token = document.getElementById("ghToken").value.trim();
+    if (!token) throw new Error("GitHub token required for SRP pull");
+
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/vnd.github+json",
+      "Content-Type": "application/json",
+      "X-GitHub-Api-Version": "2022-11-28",
+    };
+
+    const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/srp_pull.yml/dispatches`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        ref: "main",
+        inputs: {
+          srp_accounts: getSrpAccounts().join(","),
+          valve_account: document.getElementById("srpValveAccount").value,
+          device_id: document.getElementById("deviceId").value.trim() || "pd01",
+          open_turns: document.getElementById("openTurns").value || "4",
+          mode,
+        },
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || `GitHub Actions HTTP ${res.status}`);
+    }
+  }
+
+  async function pollSrpPreview(maxMs = 90000) {
+    const start = Date.now();
+    lastSrpPreviewAt = null;
+    while (Date.now() - start < maxMs) {
+      await new Promise(r => setTimeout(r, 3000));
       try {
-        return JSON.parse(localStorage.getItem(STORAGE_KEY)) || defaultWindows();
-      } catch {
-        return defaultWindows();
-      }
-    }
-
-    function saveWindows(windows) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(windows));
-    }
-
-    function localToUtcIso(localValue) {
-      if (!localValue) return null;
-      const d = new Date(localValue);
-      if (Number.isNaN(d.getTime())) return null;
-      return d.toISOString().replace(".000Z", "Z");
-    }
-
-    function addWeeks(date, weeks) {
-      const d = new Date(date);
-      d.setDate(d.getDate() + weeks * 7);
-      return d;
-    }
-
-    function buildPayload() {
-      const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
-      const openTurns = parseFloat(document.getElementById("openTurns").value) || 4;
-      const openAngle = openTurns * 360;
-      const closeAngle = 0;
-      const windows = loadWindows();
-      const events = [];
-
-      windows.forEach((w, idx) => {
-        if (!w.openLocal || !w.closeLocal) return;
-        const openStart = new Date(w.openLocal);
-        const closeStart = new Date(w.closeLocal);
-        if (Number.isNaN(openStart.getTime()) || Number.isNaN(closeStart.getTime())) return;
-        if (closeStart <= openStart) return;
-
-        const repeatWeeks = Math.max(1, parseInt(w.repeatWeeks, 10) || 1);
-        const durationSec = Math.round((closeStart - openStart) / 1000);
-
-        for (let week = 0; week < repeatWeeks; week++) {
-          const openDate = addWeeks(openStart, week);
-          const closeDate = addWeeks(closeStart, week);
-          const stamp = openDate.toISOString().slice(0, 19).replace(/[-:]/g, "").replace("T", "T");
-          events.push({
-            id: `${deviceId}-${stamp}-open`,
-            action: "open",
-            time: openDate.toISOString().replace(".000Z", "Z"),
-            virtual_angle: openAngle,
-            expected_duration_s: durationSec
-          });
-          events.push({
-            id: `${deviceId}-${stamp}-close`,
-            action: "close",
-            time: closeDate.toISOString().replace(".000Z", "Z"),
-            virtual_angle: closeAngle,
-            expected_duration_s: 60
-          });
+        const res = await fetch(`${RAW_BASE}/srp_preview.json?t=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) continue;
+        const data = await res.json();
+        if (data.fetched_at && data.fetched_at !== lastSrpPreviewAt) {
+          lastSrpPreviewAt = data.fetched_at;
+          return data;
         }
-      });
-
-      events.sort((a, b) => a.time.localeCompare(b.time));
-
-      return {
-        generated_at: new Date().toISOString().replace(".000Z", "Z"),
-        devices: { [deviceId]: events }
-      };
+      } catch { /* retry */ }
     }
+    throw new Error("Timed out waiting for SRP fetch — check GitHub Actions");
+  }
 
-    function render() {
-      const el = document.getElementById("windows");
-      const windows = loadWindows();
-      el.innerHTML = "";
+  async function pullFromSRP(mode = "preview") {
+    const btn = document.getElementById("pullSrpBtn");
+    const pubBtn = document.getElementById("pullSrpPublishBtn");
+    btn.disabled = pubBtn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Pulling…';
 
-      windows.forEach((w, i) => {
-        const div = document.createElement("div");
-        div.className = "card window";
-        div.innerHTML = `
-          <h3>${w.label || `Window ${i + 1}`}</h3>
-          <div class="row">
-            <div>
-              <label>Open (local time)</label>
-              <input type="datetime-local" data-field="openLocal" data-i="${i}" value="${w.openLocal || ""}" />
-            </div>
-            <div>
-              <label>Close (local time)</label>
-              <input type="datetime-local" data-field="closeLocal" data-i="${i}" value="${w.closeLocal || ""}" />
-            </div>
-          </div>
-          <label>Repeat weekly for (weeks)</label>
-          <input type="number" min="1" max="52" data-field="repeatWeeks" data-i="${i}" value="${w.repeatWeeks || 12}" />
-          <div class="actions">
-            <button type="button" class="secondary remove" data-i="${i}">Remove</button>
-          </div>
-        `;
-        el.appendChild(div);
-      });
+    try {
+      const accounts = getSrpAccounts();
+      const valveAcct = document.getElementById("srpValveAccount").value;
+      let results = [];
 
-      el.querySelectorAll("input").forEach((inp) => {
-        inp.addEventListener("change", () => {
-          const i = +inp.dataset.i;
-          const field = inp.dataset.field;
-          const data = loadWindows();
-          if (field === "repeatWeeks") {
-            data[i][field] = parseInt(inp.value, 10) || 1;
-          } else {
-            data[i][field] = inp.value;
-          }
-          saveWindows(data);
-        });
-      });
+      // Fast path: direct fetch (works if CORS allows — usually blocked on GitHub Pages)
+      for (const acct of accounts) {
+        try {
+          results.push(await tryFetchAccountJson(acct));
+        } catch {
+          try { results.push(await tryFetchAccountIcs(acct)); } catch { /* workflow fallback */ }
+        }
+      }
 
-      el.querySelectorAll(".remove").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          const i = +btn.dataset.i;
-          const data = loadWindows();
-          data.splice(i, 1);
-          saveWindows(data);
-          render();
-        });
-      });
-    }
-
-    document.getElementById("addWindow").addEventListener("click", () => {
-      const data = loadWindows();
-      data.push({
-        label: `Window ${data.length + 1}`,
-        openLocal: "",
-        closeLocal: "",
-        repeatWeeks: 12
-      });
-      saveWindows(data);
-      render();
-    });
-
-    document.getElementById("download").addEventListener("click", () => {
-      const payload = buildPayload();
-      const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(blob);
-      a.download = "manual_events.json";
-      a.click();
-      URL.revokeObjectURL(a.href);
-    });
-
-    document.getElementById("copyJson").addEventListener("click", async () => {
-      const payload = buildPayload();
-      const events = payload.devices[Object.keys(payload.devices)[0]] || [];
-      if (events.length === 0) {
-        alert("Add at least one open and close time first.");
+      if (results.length === accounts.length) {
+        renderSrpResults(results);
+        const pick = results.find(r => r.account === valveAcct) || results[0];
+        if (results.filter(r => r.onDateTime).length > 1 && mode === "preview") {
+          showSrpPicker(results, applySrpAccount);
+        } else {
+          applySrpAccount(pick);
+        }
+        if (mode === "publish") {
+          toast("Direct fetch OK — click Publish to GitHub when ready.");
+        }
         return;
       }
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
-      alert("JSON copied — paste into schedules/manual_events.json on GitHub.");
-    });
 
-    async function checkFeed() {
-      const el = document.getElementById("feedStatus");
-      const base = "https://raw.githubusercontent.com/jordan77-lang/irrigation-Automation/main/schedules";
-      try {
-        const [jsonRes, sigRes] = await Promise.all([
-          fetch(`${base}/schedules.json`, { cache: "no-store" }),
-          fetch(`${base}/schedules.json.sig`, { cache: "no-store" })
-        ]);
-        if (jsonRes.ok && sigRes.ok) {
-          const sig = (await sigRes.text()).trim();
-          if (/^[a-f0-9]{64}$/i.test(sig)) {
-            el.innerHTML = '<span class="status-ok">Live — signed schedule is on GitHub</span>';
-            return;
-          }
-        }
-        el.innerHTML = '<span class="status-warn">Not ready — add SIGN_KEY and run the sign workflow</span>';
-      } catch {
-        el.innerHTML = '<span class="status-warn">Could not reach GitHub (check repo is public)</span>';
+      // Fallback: GitHub Actions (server-side fetch, no CORS)
+      await dispatchSrpWorkflow(mode);
+      toast("Fetching SRP via GitHub Actions…", 4000);
+      const preview = await pollSrpPreview();
+      renderSrpResults(preview.accounts || []);
+      const valid = (preview.accounts || []).filter(a => a.onDateTime);
+      if (valid.length > 1 && mode === "preview") {
+        showSrpPicker(valid, applySrpAccount);
+      } else {
+        applySrpAccount(preview.selected || valid[0]);
+      }
+      if (mode === "publish") {
+        toast("Published to manual_events.json — signing in ~1 min ✓", 6000);
+        setTimeout(checkFeed, 8000);
+      }
+    } catch (e) {
+      toast(e.message || "SRP pull failed");
+    } finally {
+      btn.disabled = pubBtn.disabled = false;
+      btn.innerHTML = "Pull from SRP";
+    }
+  }
+
+  // ── Time options (15-minute steps) ─────────────────────────────────────────
+
+  function buildTimeOptions(selectEl, selected) {
+    selectEl.innerHTML = "";
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        const val = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = formatTime12(val);
+        if (val === selected) opt.selected = true;
+        selectEl.appendChild(opt);
       }
     }
+  }
 
-    render();
-    checkFeed();
-  </script>
+  function formatTime12(hhmm) {
+    const [h, m] = hhmm.split(":").map(Number);
+    const ampm = h >= 12 ? "PM" : "AM";
+    const h12 = h % 12 || 12;
+    return `${h12}:${String(m).padStart(2,"0")} ${ampm}`;
+  }
+
+  function formatDateLong(d) {
+    return d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", year: "numeric" });
+  }
+
+  function toDateInputValue(d) {
+    const y = d.getFullYear();
+    const mo = String(d.getMonth() + 1).padStart(2, "0");
+    const da = String(d.getDate()).padStart(2, "0");
+    return `${y}-${mo}-${da}`;
+  }
+
+  function combineLocal(dateStr, timeStr) {
+    const [y, mo, d] = dateStr.split("-").map(Number);
+    const [h, mi] = timeStr.split(":").map(Number);
+    return new Date(y, mo - 1, d, h, mi, 0);
+  }
+
+  // ── Persistence ────────────────────────────────────────────────────────────
+
+  function loadSettings() {
+    try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
+  }
+  function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+  function defaultDraft() {
+    const now = new Date();
+    const open = new Date(now.getTime() + 30 * 60000);
+    open.setMinutes(Math.ceil(open.getMinutes() / 15) * 15, 0, 0);
+    const close = new Date(open.getTime() + 3 * 3600000);
+    return {
+      date: toDateInputValue(open),
+      openTime: `${String(open.getHours()).padStart(2,"0")}:${String(open.getMinutes()).padStart(2,"0")}`,
+      closeTime: `${String(close.getHours()).padStart(2,"0")}:${String(close.getMinutes()).padStart(2,"0")}`,
+    };
+  }
+
+  function loadDraft() {
+    try {
+      const d = JSON.parse(localStorage.getItem(DRAFT_KEY));
+      if (d && d.date && d.openTime && d.closeTime) return d;
+    } catch { /* ignore */ }
+    return defaultDraft();
+  }
+
+  function saveDraft() {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(getDraftFromForm()));
+  }
+
+  function getDraftFromForm() {
+    return {
+      date: document.getElementById("irrDate").value,
+      openTime: document.getElementById("openTime").value,
+      closeTime: document.getElementById("closeTime").value,
+    };
+  }
+
+  function applyDraft(d) {
+    document.getElementById("irrDate").value = d.date;
+    document.getElementById("openTime").value = d.openTime;
+    document.getElementById("closeTime").value = d.closeTime;
+    updatePreview();
+  }
+
+  // ── Build JSON payload ─────────────────────────────────────────────────────
+
+  function buildPayload() {
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const openAngle = (parseFloat(document.getElementById("openTurns").value) || 4) * 360;
+    const { date, openTime, closeTime } = getDraftFromForm();
+    if (!date || !openTime || !closeTime) return { generated_at: new Date().toISOString().replace(".000Z","Z"), devices: { [deviceId]: [] } };
+
+    const openDate = combineLocal(date, openTime);
+    const closeDate = combineLocal(date, closeTime);
+    if (closeDate <= openDate) return { generated_at: new Date().toISOString().replace(".000Z","Z"), devices: { [deviceId]: [] } };
+
+    const stamp = openDate.toISOString().slice(0, 19).replace(/[-:]/g, "");
+    const events = [
+      { id: `${deviceId}-${stamp}-open`,  action: "open",  time: openDate.toISOString().replace(".000Z","Z"),  virtual_angle: openAngle, expected_duration_s: OPEN_MOVE_S },
+      { id: `${deviceId}-${stamp}-close`, action: "close", time: closeDate.toISOString().replace(".000Z","Z"), virtual_angle: 0, expected_duration_s: CLOSE_MOVE_S },
+    ];
+    return { generated_at: new Date().toISOString().replace(".000Z","Z"), devices: { [deviceId]: events } };
+  }
+
+  function validateTimes() {
+    const { date, openTime, closeTime } = getDraftFromForm();
+    const err = document.getElementById("timeError");
+    if (!date || !openTime || !closeTime) {
+      err.classList.remove("show");
+      return false;
+    }
+    const ok = combineLocal(date, closeTime) > combineLocal(date, openTime);
+    err.classList.toggle("show", !ok);
+    return ok;
+  }
+
+  function updatePreview() {
+    const { date, openTime, closeTime } = getDraftFromForm();
+    const openEl = document.getElementById("previewOpen");
+    const closeEl = document.getElementById("previewClose");
+    const utcEl = document.getElementById("previewUtc");
+
+    if (!date || !openTime || !closeTime) {
+      openEl.textContent = closeEl.textContent = "—";
+      utcEl.textContent = "";
+      return;
+    }
+
+    const openDate = combineLocal(date, openTime);
+    const closeDate = combineLocal(date, closeTime);
+    const valid = closeDate > openDate;
+
+    openEl.textContent = `${formatDateLong(openDate)} at ${formatTime12(openTime)}`;
+    closeEl.textContent = `${formatDateLong(closeDate)} at ${formatTime12(closeTime)}`;
+
+    if (valid) {
+      const mins = Math.round((closeDate - openDate) / 60000);
+      utcEl.textContent = `Device UTC: open ${openDate.toISOString().replace(".000Z","Z")} · close ${closeDate.toISOString().replace(".000Z","Z")} · ${mins} min run`;
+    } else {
+      utcEl.textContent = "Close must be after open";
+    }
+    validateTimes();
+    saveDraft();
+  }
+
+  // ── Live schedule display ──────────────────────────────────────────────────
+
+  function relativeTime(date) {
+    const diff = Math.round((date - Date.now()) / 1000);
+    if (diff > 0) {
+      const h = Math.floor(diff / 3600), m = Math.floor((diff % 3600) / 60);
+      if (h > 24) return `in ${Math.floor(h / 24)}d ${h % 24}h`;
+      return h ? `in ${h}h ${m}m` : `in ${m}m`;
+    }
+    const ago = -diff;
+    const h = Math.floor(ago / 3600), m = Math.floor((ago % 3600) / 60);
+    if (h > 24) return `${Math.floor(h / 24)}d ago`;
+    return h ? `${h}h ${m}m ago` : `${m}m ago`;
+  }
+
+  function renderLiveSchedule(data) {
+    const list = document.getElementById("liveSchedule");
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const events = ((data && data.devices) || {})[deviceId] || [];
+
+    if (!events.length) {
+      list.innerHTML = '<li class="empty-sched">No events scheduled for this device.</li>';
+      return;
+    }
+
+    const sorted = [...events].sort((a, b) => a.time.localeCompare(b.time));
+    const now = Date.now();
+    const nextIdx = sorted.findIndex(e => new Date(e.time) > now);
+
+    list.innerHTML = sorted.map((e, i) => {
+      const when = new Date(e.time);
+      const past = when <= now;
+      const isNext = i === nextIdx;
+      const cls = ["schedule-item", past ? "past" : "", isNext ? "next" : ""].filter(Boolean).join(" ");
+      return `<li class="${cls}">
+        <span class="action-badge ${e.action}">${e.action}</span>
+        <div class="when">
+          <div>${when.toLocaleString([], { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}</div>
+          <div class="rel">${relativeTime(when)} · ${e.time.replace(".000Z","Z")}</div>
+        </div>
+      </li>`;
+    }).join("");
+  }
+
+  function loadFromLiveSchedule() {
+    if (!liveScheduleData) { toast("No live schedule loaded yet."); return; }
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const events = (liveScheduleData.devices || {})[deviceId] || [];
+    const openEvt = events.find(e => e.action === "open");
+    const closeEvt = events.find(e => e.action === "close");
+    if (!openEvt || !closeEvt) { toast("Could not find open/close pair in live schedule."); return; }
+
+    const open = new Date(openEvt.time);
+    const close = new Date(closeEvt.time);
+    applyDraft({
+      date: toDateInputValue(open),
+      openTime: `${String(open.getHours()).padStart(2,"0")}:${String(open.getMinutes()).padStart(2,"0")}`,
+      closeTime: `${String(close.getHours()).padStart(2,"0")}:${String(close.getMinutes()).padStart(2,"0")}`,
+    });
+    toast("Loaded from live schedule ✓");
+  }
+
+  // ── Init form ──────────────────────────────────────────────────────────────
+
+  (function init() {
+    const draft = loadDraft();
+    buildTimeOptions(document.getElementById("openTime"), draft.openTime);
+    buildTimeOptions(document.getElementById("closeTime"), draft.closeTime);
+    applyDraft(draft);
+
+    ["irrDate", "openTime", "closeTime"].forEach(id => {
+      document.getElementById(id).addEventListener("change", updatePreview);
+    });
+
+    document.getElementById("dateChips").addEventListener("click", e => {
+      const btn = e.target.closest("[data-date]");
+      if (!btn) return;
+      const d = new Date();
+      if (btn.dataset.date === "tomorrow") d.setDate(d.getDate() + 1);
+      document.getElementById("irrDate").value = toDateInputValue(d);
+      updatePreview();
+    });
+
+    const s = loadSettings();
+    if (s.deviceId)  document.getElementById("deviceId").value  = s.deviceId;
+    if (s.openTurns) document.getElementById("openTurns").value = s.openTurns;
+    if (s.ghToken)   document.getElementById("ghToken").value   = s.ghToken;
+    if (s.srpAccounts) document.getElementById("srpAccounts").value = s.srpAccounts;
+    rebuildValveAccountSelect();
+    if (s.srpValveAccount) document.getElementById("srpValveAccount").value = s.srpValveAccount;
+
+    ["deviceId", "openTurns", "ghToken"].forEach(id => {
+      document.getElementById(id).addEventListener("change", () => {
+        const st = loadSettings();
+        st[id] = document.getElementById(id).value;
+        saveSettings(st);
+        if (id === "deviceId" && liveScheduleData) renderLiveSchedule(liveScheduleData);
+      });
+    });
+
+    document.getElementById("srpAccounts").addEventListener("change", () => {
+      const st = loadSettings();
+      st.srpAccounts = document.getElementById("srpAccounts").value;
+      saveSettings(st);
+      rebuildValveAccountSelect();
+    });
+    document.getElementById("srpValveAccount").addEventListener("change", () => {
+      const st = loadSettings();
+      st.srpValveAccount = document.getElementById("srpValveAccount").value;
+      saveSettings(st);
+    });
+    document.getElementById("pullSrpBtn").addEventListener("click", () => pullFromSRP("preview"));
+    document.getElementById("pullSrpPublishBtn").addEventListener("click", () => pullFromSRP("publish"));
+    document.getElementById("srpModalCancel").addEventListener("click", () => {
+      document.getElementById("srpModal").classList.remove("show");
+    });
+    if (!loadSettings().srpAccounts) {
+      document.getElementById("srpAccounts").value = DEFAULT_SRP_ACCOUNTS;
+      rebuildValveAccountSelect();
+    }
+  })();
+
+  // ── Toast ──────────────────────────────────────────────────────────────────
+
+  let toastTimer;
+  function toast(msg, duration = 3000) {
+    const el = document.getElementById("toast");
+    el.textContent = msg;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), duration);
+  }
+
+  // ── Publish ────────────────────────────────────────────────────────────────
+
+  async function publishToGitHub() {
+    if (!validateTimes()) { toast("Fix the times — close must be after open."); return; }
+
+    const token = document.getElementById("ghToken").value.trim();
+    if (!token) { toast("Enter a GitHub token to publish directly."); return; }
+
+    const btn = document.getElementById("publishBtn");
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Publishing…';
+
+    try {
+      const payload = buildPayload();
+      const events = payload.devices[Object.keys(payload.devices)[0]] || [];
+      if (!events.length) { toast("Set open and close times first."); return; }
+
+      const content = JSON.stringify(payload, null, 2);
+      const b64 = btoa(unescape(encodeURIComponent(content)));
+      const headers = { "Authorization": `token ${token}`, "Content-Type": "application/json" };
+
+      const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, { headers });
+      const sha = getRes.ok ? (await getRes.json()).sha : undefined;
+
+      const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
+        method: "PUT", headers,
+        body: JSON.stringify({
+          message: `schedule: ${events[0].time.slice(0,16)} open / close`,
+          content: b64,
+          ...(sha ? { sha } : {}),
+        }),
+      });
+
+      if (putRes.ok) {
+        toast("Published! Signing in ~1 min. ✓", 5000);
+        setTimeout(checkFeed, 8000);
+      } else {
+        const err = await putRes.json();
+        toast(`GitHub error: ${err.message}`);
+      }
+    } catch (e) {
+      toast(`Error: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = "Publish to GitHub";
+    }
+  }
+
+  document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
+  document.getElementById("refreshBtn").addEventListener("click", checkFeed);
+  document.getElementById("loadFromLiveBtn").addEventListener("click", loadFromLiveSchedule);
+
+  // ── Fetch live schedule ──────────────────────────────────────────────────────
+
+  async function checkFeed() {
+    const dot = document.getElementById("statusDot");
+    const text = document.getElementById("statusText");
+    const age = document.getElementById("statusAge");
+    try {
+      const [jr, sr] = await Promise.all([
+        fetch(`${RAW_BASE}/schedules.json`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/schedules.json.sig`, { cache: "no-store" }),
+      ]);
+      if (!jr.ok || !sr.ok) throw new Error("not found");
+      const sig = (await sr.text()).trim();
+      const data = await jr.json();
+      if (!/^[a-f0-9]{64}$/i.test(sig)) throw new Error("bad sig");
+
+      liveScheduleData = data;
+      dot.className = "dot ok";
+      text.textContent = "Schedule live and signed";
+
+      if (data.generated_at) {
+        age.textContent = `Updated ${new Date(data.generated_at).toLocaleString()}`;
+      }
+
+      renderLiveSchedule(data);
+    } catch {
+      liveScheduleData = null;
+      dot.className = "dot warn";
+      text.textContent = "No signed schedule found";
+      age.textContent = "";
+      document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">No signed schedule on GitHub yet.</li>';
+    }
+  }
+
+  checkFeed();
+</script>
 </body>
 </html>

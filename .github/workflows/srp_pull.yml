@@ -1,0 +1,58 @@
+name: Pull SRP schedule
+
+on:
+  workflow_dispatch:
+    inputs:
+      srp_accounts:
+        description: 'SRP account numbers (comma-separated)'
+        required: true
+        default: '0072499,0072849,0072239,0072309'
+      valve_account:
+        description: 'Account number for this valve'
+        required: true
+        default: '0072309'
+      device_id:
+        description: 'Device ID in manual_events.json'
+        required: true
+        default: 'pd01'
+      open_turns:
+        description: 'Valve open turns'
+        required: true
+        default: '4'
+      mode:
+        description: 'preview = srp_preview.json only; publish = also update manual_events.json'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - publish
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch SRP windows
+        env:
+          SRP_ACCOUNTS: ${{ github.event.inputs.srp_accounts }}
+          SRP_VALVE_ACCOUNT: ${{ github.event.inputs.valve_account }}
+          DEVICE_ID: ${{ github.event.inputs.device_id }}
+          OPEN_TURNS: ${{ github.event.inputs.open_turns }}
+          SRP_MODE: ${{ github.event.inputs.mode }}
+        run: node scripts/fetch_srp.mjs
+
+      - name: Commit SRP data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add schedules/srp_preview.json
+          if [ "${{ github.event.inputs.mode }}" = "publish" ]; then
+            git add schedules/manual_events.json
+          fi
+          git commit -m "chore: pull SRP schedule (${{ github.event.inputs.valve_account }})" || echo "no changes"
+          git push
