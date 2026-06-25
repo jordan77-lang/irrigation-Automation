@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-25T20:24:05.457Z",
+  "generated_at": "2026-06-25T20:24:30.285Z",
   "devices": {
     "pd01": [
       {
@@ -12,7 +12,7 @@
       {
         "id": "pd01-20260618T103000-close",
         "action": "close",
-        "time": "2026-06-18T11:00:00Z",
+        "time": "2026-06-18T11:15:00Z",
         "virtual_angle": 0,
         "expected_duration_s": 60
       }
