@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Irrigation Control</title>
+  <title>Irrigation · 245 W 9th Place</title>
   <style>
     :root {
       --bg: #f0f4f0;
@@ -25,113 +25,138 @@
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      padding: 1.5rem 1rem 3rem;
+      padding: 1.25rem 1rem 3rem;
       line-height: 1.5;
     }
-    .wrap { max-width: 680px; margin: 0 auto; }
+    .wrap { max-width: 560px; margin: 0 auto; }
 
-    header { margin-bottom: 1.5rem; }
-    header h1 { font-size: 1.6rem; color: var(--accent-dark); }
-    header p { color: var(--muted); font-size: 0.95rem; margin-top: 0.2rem; }
+    header { margin-bottom: 1.25rem; }
+    header h1 { font-size: 1.45rem; color: var(--accent-dark); }
+    header p { color: var(--muted); font-size: 0.9rem; margin-top: 0.15rem; }
 
     .status-bar {
       display: flex; align-items: center; gap: 0.6rem;
       background: var(--card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 0.85rem 1.1rem;
+      border-radius: var(--radius); padding: 0.75rem 1rem;
       margin-bottom: 1rem; box-shadow: var(--shadow);
-      font-size: 0.9rem;
+      font-size: 0.88rem; cursor: pointer;
     }
-    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .status-bar:hover { border-color: var(--accent); }
+    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
     .dot.ok { background: #2d9d5e; }
     .dot.warn { background: var(--warn); }
     .dot.off { background: #bbb; }
-    .status-bar .right { margin-left: auto; color: var(--muted); font-size: 0.85rem; }
+    .status-bar .right { margin-left: auto; color: var(--muted); font-size: 0.82rem; }
 
     .card {
       background: var(--card); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 1.25rem 1.4rem;
+      border-radius: var(--radius); padding: 1.2rem 1.3rem;
       margin-bottom: 1rem; box-shadow: var(--shadow);
     }
     .card-title {
-      font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
-      letter-spacing: 0.06em; color: var(--muted); margin-bottom: 1rem;
+      font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted); margin-bottom: 0.85rem;
     }
-    .card-hint { font-size: 0.82rem; color: var(--muted); margin: -0.5rem 0 1rem; }
+    .card-hint { font-size: 0.82rem; color: var(--muted); margin: -0.4rem 0 0.85rem; }
 
-    label { display: block; font-size: 0.875rem; font-weight: 600; margin-bottom: 0.3rem; }
+    label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.25rem; }
     input, select {
-      width: 100%; padding: 0.55rem 0.75rem;
+      width: 100%; padding: 0.5rem 0.7rem;
       border: 1.5px solid var(--border); border-radius: 8px;
       font: inherit; font-size: 0.95rem; color: var(--text);
-      background: #fff; margin-bottom: 0.9rem;
+      background: #fff; margin-bottom: 0.75rem;
       transition: border-color 0.15s;
     }
     input:focus, select:focus { outline: none; border-color: var(--accent); }
-    input[type="date"] { cursor: pointer; min-height: 2.75rem; }
+    input[type="date"] { cursor: pointer; min-height: 2.65rem; }
 
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
-    .row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.65rem; }
-    @media (max-width: 520px) { .row, .row-3 { grid-template-columns: 1fr; } }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
 
-    .chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 0.9rem; }
+    .chip-row { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
     .chip {
-      padding: 0.35rem 0.75rem; border-radius: 999px; border: 1.5px solid var(--border);
-      background: #fff; font: inherit; font-size: 0.85rem; font-weight: 600;
-      color: var(--accent-dark); cursor: pointer; transition: background 0.15s, border-color 0.15s;
+      padding: 0.3rem 0.7rem; border-radius: 999px; border: 1.5px solid var(--border);
+      background: #fff; font: inherit; font-size: 0.82rem; font-weight: 600;
+      color: var(--accent-dark); cursor: pointer;
     }
     .chip:hover { background: var(--accent-light); border-color: var(--accent); }
-    .chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
     .preview-box {
       background: var(--accent-light); border: 1px solid #b2d8c2;
-      border-radius: 10px; padding: 0.85rem 1rem; margin-bottom: 0.9rem;
-      font-size: 0.92rem;
+      border-radius: 10px; padding: 0.75rem 0.9rem; margin: 0.75rem 0 0;
+      font-size: 0.9rem;
     }
-    .preview-box .line { display: flex; gap: 0.5rem; align-items: baseline; margin-bottom: 0.25rem; }
+    .preview-box .line { display: flex; gap: 0.45rem; align-items: baseline; margin-bottom: 0.2rem; }
     .preview-box .tag {
-      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-      padding: 0.15rem 0.45rem; border-radius: 4px; min-width: 3.2rem; text-align: center;
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      padding: 0.12rem 0.4rem; border-radius: 4px; min-width: 3rem; text-align: center;
     }
     .tag.open { background: #2d6a4f; color: #fff; }
     .tag.close { background: #52796f; color: #fff; }
-    .preview-box .utc { font-size: 0.78rem; color: var(--muted); }
+    .preview-box .utc { font-size: 0.78rem; color: var(--muted); margin-top: 0.35rem; }
+
+    .actions {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 0.65rem;
+      margin-bottom: 1.25rem;
+    }
+    @media (max-width: 480px) { .actions { grid-template-columns: 1fr; } }
 
     .btn {
-      display: inline-flex; align-items: center; gap: 0.4rem;
-      padding: 0.6rem 1.1rem; border-radius: 8px; border: none;
+      display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+      padding: 0.65rem 1rem; border-radius: 8px; border: none;
       font: inherit; font-size: 0.95rem; font-weight: 600;
       cursor: pointer; transition: background 0.15s, opacity 0.15s;
+      width: 100%;
     }
     .btn:disabled { opacity: 0.45; cursor: not-allowed; }
     .btn-primary { background: var(--accent); color: #fff; }
     .btn-primary:hover:not(:disabled) { background: var(--accent-dark); }
-    .btn-ghost { background: transparent; color: var(--accent-dark); border: 1.5px solid var(--border); }
-    .btn-ghost:hover:not(:disabled) { background: var(--accent-light); }
-    .btn-sm { padding: 0.35rem 0.75rem; font-size: 0.85rem; }
-    .btn-row { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.25rem; }
+    .btn-secondary { background: #fff; color: var(--accent-dark); border: 1.5px solid var(--border); }
+    .btn-secondary:hover:not(:disabled) { background: var(--accent-light); }
 
-    .token-hint { font-size: 0.8rem; color: var(--muted); margin-top: -0.6rem; margin-bottom: 0.9rem; }
-    .token-hint a { color: var(--accent-dark); }
+    .srp-status {
+      display: none; font-size: 0.85rem; color: var(--muted);
+      background: #f8faf9; border: 1px solid var(--border);
+      border-radius: 8px; padding: 0.65rem 0.85rem; margin-bottom: 1rem;
+    }
+    .srp-status.show { display: block; }
 
-    /* Schedule table */
     .schedule-list { list-style: none; }
     .schedule-item {
-      display: flex; align-items: flex-start; gap: 0.75rem;
-      padding: 0.65rem 0; border-bottom: 1px solid var(--border);
-      font-size: 0.9rem;
+      display: flex; align-items: flex-start; gap: 0.65rem;
+      padding: 0.55rem 0; border-bottom: 1px solid var(--border);
+      font-size: 0.88rem;
     }
     .schedule-item:last-child { border-bottom: none; }
-    .schedule-item.past { opacity: 0.5; }
-    .schedule-item.next { background: var(--accent-light); margin: 0 -0.5rem; padding: 0.65rem 0.5rem; border-radius: 8px; border-bottom: none; }
+    .schedule-item.past { opacity: 0.45; }
+    .schedule-item.next {
+      background: var(--accent-light); margin: 0 -0.4rem; padding: 0.55rem 0.4rem;
+      border-radius: 8px; border-bottom: none;
+    }
     .schedule-item .when { flex: 1; }
     .schedule-item .action-badge {
-      font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
-      padding: 0.2rem 0.5rem; border-radius: 4px; white-space: nowrap;
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      padding: 0.18rem 0.45rem; border-radius: 4px; white-space: nowrap;
     }
     .action-badge.open { background: #2d6a4f; color: #fff; }
     .action-badge.close { background: #52796f; color: #fff; }
-    .schedule-item .rel { font-size: 0.8rem; color: var(--muted); margin-top: 0.1rem; }
-    .empty-sched { color: var(--muted); font-size: 0.9rem; padding: 0.5rem 0; }
+    .schedule-item .rel { font-size: 0.78rem; color: var(--muted); margin-top: 0.05rem; }
+    .empty-sched { color: var(--muted); font-size: 0.88rem; padding: 0.25rem 0; }
+
+    details.settings {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.85rem 1.1rem;
+      box-shadow: var(--shadow); font-size: 0.88rem;
+    }
+    details.settings summary {
+      cursor: pointer; font-weight: 600; color: var(--muted);
+      list-style: none; user-select: none;
+    }
+    details.settings summary::-webkit-details-marker { display: none; }
+    details.settings[open] summary { margin-bottom: 0.85rem; }
+    .settings-body { padding-top: 0.25rem; }
+    .settings-hint { font-size: 0.8rem; color: var(--muted); margin: -0.4rem 0 0.75rem; }
+    .settings-hint a { color: var(--accent-dark); }
 
     #toast {
       position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
@@ -147,96 +172,38 @@
       border: 2px solid rgba(255,255,255,0.4); border-top-color: #fff;
       border-radius: 50%; animation: spin 0.6s linear infinite;
     }
+    .btn-secondary .spin { border-color: rgba(45,106,79,0.25); border-top-color: var(--accent); }
     @keyframes spin { to { transform: rotate(360deg); } }
 
-    .field-error { color: var(--danger); font-size: 0.82rem; margin: -0.5rem 0 0.75rem; display: none; }
+    .field-error { color: var(--danger); font-size: 0.82rem; margin-top: 0.5rem; display: none; }
     .field-error.show { display: block; }
-
-    .srp-result {
-      background: #f8faf9; border: 1px solid var(--border); border-radius: 8px;
-      padding: 0.75rem 0.9rem; margin-bottom: 0.75rem; font-size: 0.88rem;
-    }
-    .srp-result .title { font-weight: 700; margin-bottom: 0.2rem; }
-    .srp-result .meta { color: var(--muted); font-size: 0.82rem; }
-
-    .modal-backdrop {
-      position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-      display: none; align-items: center; justify-content: center;
-      padding: 1rem; z-index: 100;
-    }
-    .modal-backdrop.show { display: flex; }
-    .modal {
-      background: var(--card); border-radius: var(--radius); padding: 1.25rem;
-      max-width: 420px; width: 100%; box-shadow: 0 8px 32px rgba(0,0,0,0.2);
-    }
-    .modal h3 { margin-bottom: 0.75rem; font-size: 1.05rem; }
-    .modal-pick {
-      display: block; width: 100%; text-align: left; margin-bottom: 0.5rem;
-      padding: 0.65rem 0.85rem; border: 1.5px solid var(--border); border-radius: 8px;
-      background: #fff; cursor: pointer; font: inherit;
-    }
-    .modal-pick:hover { border-color: var(--accent); background: var(--accent-light); }
-    .modal-pick .sub { font-size: 0.82rem; color: var(--muted); margin-top: 0.15rem; }
   </style>
 </head>
 <body>
 <div class="wrap">
 
   <header>
-    <h1>Irrigation Control</h1>
-    <p>Set open and close times when the district announces irrigation — publishes to your device.</p>
+    <h1>245 W 9th Place</h1>
+    <p>Pull SRP times, review, then publish to your valve.</p>
   </header>
 
-  <div class="status-bar">
+  <div class="status-bar" id="statusBar" title="Tap to refresh">
     <span class="dot off" id="statusDot"></span>
     <span id="statusText">Checking schedule…</span>
     <span class="right" id="statusAge"></span>
   </div>
 
-  <!-- Live schedule on device -->
   <div class="card">
-    <div class="card-title">Current schedule on device</div>
-    <p class="card-hint">What your PD-Stepper will run (signed schedule from GitHub).</p>
-    <ul class="schedule-list" id="liveSchedule">
-      <li class="empty-sched">Loading…</li>
-    </ul>
-    <button class="btn btn-ghost btn-sm" id="refreshBtn" type="button">Refresh</button>
-    <button class="btn btn-ghost btn-sm" id="loadFromLiveBtn" type="button" style="margin-left:0.4rem;">Copy into editor</button>
-  </div>
-
-  <!-- SRP pull -->
-  <div class="card">
-    <div class="card-title">SRP water schedule</div>
-    <p class="card-hint">
-      Pull gate open/close times from SRP when the district posts your order.
-      Uses the same API as
-      <a href="https://github.com/mrbdahlem/irrigation" target="_blank" rel="noopener" style="color:var(--accent-dark);">mrbdahlem/irrigation</a>
-      via <a href="https://irrigation.briandahlem.com/" target="_blank" rel="noopener" style="color:var(--accent-dark);">irrigation.briandahlem.com</a>.
-    </p>
-
-    <label for="srpAccounts">SRP account numbers</label>
-    <input id="srpAccounts" placeholder="0072499,0072849,0072239,0072309" />
-
-    <label for="srpValveAccount">This valve's account</label>
-    <select id="srpValveAccount"></select>
-
-    <div class="btn-row">
-      <button class="btn btn-primary" id="pullSrpBtn" type="button">Pull from SRP</button>
-      <button class="btn btn-ghost" id="pullSrpPublishBtn" type="button">Pull &amp; publish</button>
-      <a class="btn btn-ghost" id="viewSrpLink" href="#" target="_blank" rel="noopener">View all on web</a>
+    <div class="actions">
+      <button class="btn btn-secondary" id="pullSrpBtn" type="button">Pull from SRP</button>
+      <button class="btn btn-primary" id="publishBtn" type="button">Publish to GitHub</button>
     </div>
-    <p class="token-hint" style="margin-top:0.75rem;margin-bottom:0;">
-      Pull from SRP runs a GitHub Action (browser cannot call SRP directly). Your token needs <strong>Actions: Read and write</strong> in addition to Contents — see Device settings below.
-    </p>
-    <div id="srpResults"></div>
-  </div>
 
-  <!-- New irrigation run -->
-  <div class="card">
-    <div class="card-title">Set next irrigation</div>
-    <p class="card-hint">Times use your phone/computer timezone. The device runs on UTC automatically.</p>
+    <div class="srp-status" id="srpStatus"></div>
 
-    <label for="irrDate">Irrigation date</label>
+    <div class="card-title">Schedule</div>
+
+    <label for="irrDate">Date</label>
     <div class="chip-row" id="dateChips">
       <button type="button" class="chip" data-date="today">Today</button>
       <button type="button" class="chip" data-date="tomorrow">Tomorrow</button>
@@ -245,11 +212,11 @@
 
     <div class="row">
       <div>
-        <label for="openTime">Open valve at</label>
+        <label for="openTime">Open valve</label>
         <select id="openTime"></select>
       </div>
       <div>
-        <label for="closeTime">Close valve at</label>
+        <label for="closeTime">Close valve</label>
         <select id="closeTime"></select>
       </div>
     </div>
@@ -262,58 +229,45 @@
     <p class="field-error" id="timeError">Close must be after open on the same day.</p>
   </div>
 
-  <!-- Settings -->
   <div class="card">
-    <div class="card-title">Device settings</div>
-    <div class="row">
-      <div>
-        <label for="deviceId">Device ID</label>
-        <input id="deviceId" value="pd01" />
-      </div>
-      <div>
-        <label for="openTurns">Valve open turns</label>
-        <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
-      </div>
-    </div>
-
-    <label for="ghToken">GitHub token (publish + SRP pull)</label>
-    <input id="ghToken" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" />
-    <p class="token-hint">
-      <strong>Classic token:</strong>
-      <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation+editor" target="_blank" rel="noopener">create with <code>repo</code> + <code>workflow</code></a> scopes.<br>
-      <strong>Fine-grained token:</strong>
-      <a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">create for this repo</a>
-      with <strong>Contents: Read and write</strong> and <strong>Actions: Read and write</strong>.<br>
-      Stored only in your browser. “Resource not accessible” almost always means a missing permission above.
-    </p>
+    <div class="card-title">On device</div>
+    <p class="card-hint">Signed schedule your valve will run.</p>
+    <ul class="schedule-list" id="liveSchedule">
+      <li class="empty-sched">Loading…</li>
+    </ul>
   </div>
 
-  <!-- Publish -->
-  <div class="card">
-    <div class="card-title">Publish schedule</div>
-    <div class="btn-row">
-      <button class="btn btn-primary" id="publishBtn">Publish to GitHub</button>
+  <details class="settings">
+    <summary>Settings</summary>
+    <div class="settings-body">
+      <label for="ghToken">GitHub token</label>
+      <input id="ghToken" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" />
+      <p class="settings-hint">
+        Stored in this browser only.
+        <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation" target="_blank" rel="noopener">Classic token</a>
+        needs <code>repo</code> + <code>workflow</code>.
+        Fine-grained needs Contents + Actions write on this repo.
+      </p>
+      <div class="row">
+        <div>
+          <label for="deviceId">Device ID</label>
+          <input id="deviceId" value="pd01" />
+        </div>
+        <div>
+          <label for="openTurns">Open turns</label>
+          <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
+        </div>
+      </div>
     </div>
-    <p style="font-size:0.82rem;color:var(--muted);margin-top:0.9rem;">
-      Publish replaces the device schedule with this open/close pair. GitHub Actions signs it within ~1 minute.
-    </p>
-  </div>
+  </details>
 
 </div>
 
 <div id="toast"></div>
 
-<div class="modal-backdrop" id="srpModal">
-  <div class="modal">
-    <h3>Which SRP account?</h3>
-    <div id="srpModalList"></div>
-    <button class="btn btn-ghost btn-sm" type="button" id="srpModalCancel" style="margin-top:0.5rem;">Cancel</button>
-  </div>
-</div>
-
 <script>
-  const DRAFT_KEY    = "irr_draft_v3";
-  const SETTINGS_KEY = "irr_settings_v1";
+  const DRAFT_KEY    = "irr_draft_v4";
+  const SETTINGS_KEY = "irr_settings_v2";
   const REPO         = "jordan77-lang/irrigation-Automation";
   const FILE_PATH    = "schedules/manual_events.json";
   const RAW_BASE     = `https://raw.githubusercontent.com/${REPO}/main/schedules`;
@@ -322,13 +276,8 @@
   const SRP_PROXY    = "https://irrigation.briandahlem.com";
   const SRP_API      = "https://water.gateway.srpnet.com/schedule/account";
   const ARIZONA_OFFSET = "-07:00";
-  const DEFAULT_SRP_ACCOUNTS = "0072499,0072849,0072239,0072309";
-  const SRP_NAMES = {
-    "0072499": "Mark & Brian",
-    "0072849": "Mai",
-    "0072239": "Shaun & Parv - 320",
-    "0072309": "316",
-  };
+  const SRP_ACCOUNT  = "0072499";
+  const SRP_NAME     = "245 w 9th place";
 
   let liveScheduleData = null;
   let lastSrpPreviewAt = null;
@@ -369,38 +318,20 @@
     };
   }
 
-  function getSrpAccounts() {
-    return (document.getElementById("srpAccounts").value || DEFAULT_SRP_ACCOUNTS)
-      .split(",").map(s => s.trim()).filter(Boolean);
+  function renderSrpStatus(entry) {
+    const el = document.getElementById("srpStatus");
+    if (!entry || (!entry.onDateTime && !entry.openDate)) {
+      el.innerHTML = "";
+      el.classList.remove("show");
+      return;
+    }
+    const open = entry.openDate || new Date(`${entry.onDateTime}${ARIZONA_OFFSET}`);
+    const close = entry.closeDate || new Date(`${entry.offDateTime}${ARIZONA_OFFSET}`);
+    el.innerHTML = `<strong>${SRP_NAME}</strong> · ${entry.status || "SRP"}<br>${open.toLocaleString()} → ${close.toLocaleString()}`;
+    el.classList.add("show");
   }
 
-  function rebuildValveAccountSelect() {
-    const sel = document.getElementById("srpValveAccount");
-    const current = sel.value;
-    const accounts = getSrpAccounts();
-    sel.innerHTML = accounts.map(acct => {
-      const name = SRP_NAMES[acct] || acct;
-      return `<option value="${acct}">${name} (${acct})</option>`;
-    }).join("");
-    if (accounts.includes(current)) sel.value = current;
-    document.getElementById("viewSrpLink").href = `${SRP_PROXY}/${accounts.join(",")}`;
-  }
-
-  function renderSrpResults(accounts) {
-    const el = document.getElementById("srpResults");
-    if (!accounts || !accounts.length) { el.innerHTML = ""; return; }
-    el.innerHTML = accounts.filter(a => a.onDateTime || a.openDate).map(a => {
-      const open = a.openDate || new Date(`${a.onDateTime}${ARIZONA_OFFSET}`);
-      const close = a.closeDate || new Date(`${a.offDateTime}${ARIZONA_OFFSET}`);
-      return `<div class="srp-result">
-        <div class="title">${a.name || a.account} · ${a.status || "SRP"}</div>
-        <div>${open.toLocaleString()} → ${close.toLocaleString()}</div>
-        <div class="meta">${a.address || ""}</div>
-      </div>`;
-    }).join("");
-  }
-
-  function applySrpAccount(entry) {
+  function applySrpEntry(entry) {
     if (!entry) {
       toast("No SRP window for this account.");
       return;
@@ -419,27 +350,8 @@
       toast(entry.error || "No SRP window for this account.");
       return;
     }
-    toast(`Loaded ${entry.name || entry.account} from SRP ✓`);
-  }
-
-  function showSrpPicker(accounts, onPick) {
-    const list = document.getElementById("srpModalList");
-    list.innerHTML = accounts.filter(a => a.onDateTime || a.openDate).map(a => {
-      const open = a.openDate || new Date(`${a.onDateTime}${ARIZONA_OFFSET}`);
-      const close = a.closeDate || new Date(`${a.offDateTime}${ARIZONA_OFFSET}`);
-      return `<button type="button" class="modal-pick" data-acct="${a.account}">
-        <strong>${a.name || a.account}</strong>
-        <div class="sub">${open.toLocaleString()} → ${close.toLocaleTimeString([], {hour:"numeric", minute:"2-digit"})}</div>
-      </button>`;
-    }).join("");
-    list.querySelectorAll(".modal-pick").forEach(btn => {
-      btn.addEventListener("click", () => {
-        document.getElementById("srpModal").classList.remove("show");
-        const pick = accounts.find(a => a.account === btn.dataset.acct);
-        onPick(pick);
-      });
-    });
-    document.getElementById("srpModal").classList.add("show");
+    renderSrpStatus(entry);
+    toast("Loaded from SRP ✓");
   }
 
   function parseIcsDateTime(raw) {
@@ -451,8 +363,8 @@
     return null;
   }
 
-  async function tryFetchAccountIcs(acct) {
-    const res = await fetch(`${SRP_PROXY}/${acct}.ics`, { cache: "no-store" });
+  async function tryFetchAccountIcs() {
+    const res = await fetch(`${SRP_PROXY}/${SRP_ACCOUNT}.ics`, { cache: "no-store" });
     if (!res.ok) throw new Error(`ICS HTTP ${res.status}`);
     const text = await res.text();
     const block = text.split("BEGIN:VEVENT")[1];
@@ -464,8 +376,8 @@
     const end = parseIcsDateTime(dtend);
     if (!start || !end) throw new Error("Could not parse ICS times");
     return {
-      account: acct,
-      name: SRP_NAMES[acct] || acct,
+      account: SRP_ACCOUNT,
+      name: SRP_NAME,
       openDate: start,
       closeDate: end,
       status: summary.split(":").pop()?.trim() || "SRP",
@@ -473,27 +385,26 @@
     };
   }
 
-  async function tryFetchAccountJson(acct) {
-    const res = await fetch(`${SRP_API}/${acct}/quickview`, { cache: "no-store" });
+  async function tryFetchAccountJson() {
+    const res = await fetch(`${SRP_API}/${SRP_ACCOUNT}/quickview`, { cache: "no-store" });
     if (!res.ok) throw new Error(`API HTTP ${res.status}`);
     const data = await res.json();
     const on = data.onDateTime || data.displayFirstAccountScheduleDetail?.onDateTime;
     const off = data.offDateTime || data.displayFirstAccountScheduleDetail?.offDateTime;
     if (!on || !off) throw new Error("No times in SRP response");
     return {
-      account: acct,
-      name: SRP_NAMES[acct] || acct,
+      account: SRP_ACCOUNT,
+      name: SRP_NAME,
       onDateTime: on,
       offDateTime: off,
       status: data.orderStatus || "",
-      address: data.displayFirstAccountScheduleDetail?.address || "",
       source: "api",
     };
   }
 
-  async function dispatchSrpWorkflow(mode) {
+  async function dispatchSrpWorkflow() {
     const token = document.getElementById("ghToken").value.trim();
-    if (!token) throw new Error("GitHub token required for SRP pull");
+    if (!token) throw new Error("Enter a GitHub token in Settings.");
 
     const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/srp_pull.yml/dispatches`, {
       method: "POST",
@@ -501,11 +412,11 @@
       body: JSON.stringify({
         ref: "main",
         inputs: {
-          srp_accounts: getSrpAccounts().join(","),
-          valve_account: document.getElementById("srpValveAccount").value,
+          srp_accounts: SRP_ACCOUNT,
+          valve_account: SRP_ACCOUNT,
           device_id: document.getElementById("deviceId").value.trim() || "pd01",
           open_turns: document.getElementById("openTurns").value || "4",
-          mode,
+          mode: "preview",
         },
       }),
     });
@@ -531,67 +442,39 @@
         }
       } catch { /* retry */ }
     }
-    throw new Error("Timed out waiting for SRP fetch — check GitHub Actions");
+    throw new Error("Timed out — check GitHub Actions");
   }
 
-  async function pullFromSRP(mode = "preview") {
+  async function pullFromSRP() {
     const btn = document.getElementById("pullSrpBtn");
-    const pubBtn = document.getElementById("pullSrpPublishBtn");
-    btn.disabled = pubBtn.disabled = true;
+    btn.disabled = true;
     btn.innerHTML = '<span class="spin"></span> Pulling…';
 
     try {
-      const accounts = getSrpAccounts();
-      const valveAcct = document.getElementById("srpValveAccount").value;
-      let results = [];
-
-      // Fast path: direct fetch (works if CORS allows — usually blocked on GitHub Pages)
-      for (const acct of accounts) {
-        try {
-          results.push(await tryFetchAccountJson(acct));
-        } catch {
-          try { results.push(await tryFetchAccountIcs(acct)); } catch { /* workflow fallback */ }
-        }
+      let entry = null;
+      try {
+        entry = await tryFetchAccountJson();
+      } catch {
+        try { entry = await tryFetchAccountIcs(); } catch { /* workflow fallback */ }
       }
 
-      if (results.length === accounts.length) {
-        renderSrpResults(results);
-        const pick = results.find(r => r.account === valveAcct) || results[0];
-        if (results.filter(r => r.onDateTime).length > 1 && mode === "preview") {
-          showSrpPicker(results, applySrpAccount);
-        } else {
-          applySrpAccount(pick);
-        }
-        if (mode === "publish") {
-          toast("Direct fetch OK — click Publish to GitHub when ready.");
-        }
+      if (entry) {
+        applySrpEntry(entry);
         return;
       }
 
-      // Fallback: GitHub Actions (server-side fetch, no CORS)
-      await dispatchSrpWorkflow(mode);
+      await dispatchSrpWorkflow();
       toast("Fetching SRP via GitHub Actions…", 4000);
       const preview = await pollSrpPreview();
-      renderSrpResults(preview.accounts || []);
-      const valid = (preview.accounts || []).filter(a => a.onDateTime);
-      if (valid.length > 1 && mode === "preview") {
-        showSrpPicker(valid, applySrpAccount);
-      } else {
-        applySrpAccount(preview.selected || valid[0]);
-      }
-      if (mode === "publish") {
-        toast("Published to manual_events.json — signing in ~1 min ✓", 6000);
-        setTimeout(checkFeed, 8000);
-      }
+      const pick = preview.selected || (preview.accounts || []).find(a => a.account === SRP_ACCOUNT) || preview.accounts?.[0];
+      applySrpEntry(pick);
     } catch (e) {
       toast(e.message || "SRP pull failed");
     } finally {
-      btn.disabled = pubBtn.disabled = false;
+      btn.disabled = false;
       btn.innerHTML = "Pull from SRP";
     }
   }
-
-  // ── Time options (15-minute steps) ─────────────────────────────────────────
 
   function buildTimeOptions(selectEl, selected) {
     selectEl.innerHTML = "";
@@ -630,8 +513,6 @@
     const [h, mi] = timeStr.split(":").map(Number);
     return new Date(y, mo - 1, d, h, mi, 0);
   }
-
-  // ── Persistence ────────────────────────────────────────────────────────────
 
   function loadSettings() {
     try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
@@ -676,8 +557,6 @@
     document.getElementById("closeTime").value = d.closeTime;
     updatePreview();
   }
-
-  // ── Build JSON payload ─────────────────────────────────────────────────────
 
   function buildPayload() {
     const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
@@ -738,8 +617,6 @@
     saveDraft();
   }
 
-  // ── Live schedule display ──────────────────────────────────────────────────
-
   function relativeTime(date) {
     const diff = Math.round((date - Date.now()) / 1000);
     if (diff > 0) {
@@ -759,7 +636,7 @@
     const events = ((data && data.devices) || {})[deviceId] || [];
 
     if (!events.length) {
-      list.innerHTML = '<li class="empty-sched">No events scheduled for this device.</li>';
+      list.innerHTML = '<li class="empty-sched">No events scheduled.</li>';
       return;
     }
 
@@ -776,91 +653,11 @@
         <span class="action-badge ${e.action}">${e.action}</span>
         <div class="when">
           <div>${when.toLocaleString([], { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}</div>
-          <div class="rel">${relativeTime(when)} · ${e.time.replace(".000Z","Z")}</div>
+          <div class="rel">${relativeTime(when)}</div>
         </div>
       </li>`;
     }).join("");
   }
-
-  function loadFromLiveSchedule() {
-    if (!liveScheduleData) { toast("No live schedule loaded yet."); return; }
-    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
-    const events = (liveScheduleData.devices || {})[deviceId] || [];
-    const openEvt = events.find(e => e.action === "open");
-    const closeEvt = events.find(e => e.action === "close");
-    if (!openEvt || !closeEvt) { toast("Could not find open/close pair in live schedule."); return; }
-
-    const open = new Date(openEvt.time);
-    const close = new Date(closeEvt.time);
-    applyDraft({
-      date: toDateInputValue(open),
-      openTime: `${String(open.getHours()).padStart(2,"0")}:${String(open.getMinutes()).padStart(2,"0")}`,
-      closeTime: `${String(close.getHours()).padStart(2,"0")}:${String(close.getMinutes()).padStart(2,"0")}`,
-    });
-    toast("Loaded from live schedule ✓");
-  }
-
-  // ── Init form ──────────────────────────────────────────────────────────────
-
-  (function init() {
-    const draft = loadDraft();
-    buildTimeOptions(document.getElementById("openTime"), draft.openTime);
-    buildTimeOptions(document.getElementById("closeTime"), draft.closeTime);
-    applyDraft(draft);
-
-    ["irrDate", "openTime", "closeTime"].forEach(id => {
-      document.getElementById(id).addEventListener("change", updatePreview);
-    });
-
-    document.getElementById("dateChips").addEventListener("click", e => {
-      const btn = e.target.closest("[data-date]");
-      if (!btn) return;
-      const d = new Date();
-      if (btn.dataset.date === "tomorrow") d.setDate(d.getDate() + 1);
-      document.getElementById("irrDate").value = toDateInputValue(d);
-      updatePreview();
-    });
-
-    const s = loadSettings();
-    if (s.deviceId)  document.getElementById("deviceId").value  = s.deviceId;
-    if (s.openTurns) document.getElementById("openTurns").value = s.openTurns;
-    if (s.ghToken)   document.getElementById("ghToken").value   = s.ghToken;
-    if (s.srpAccounts) document.getElementById("srpAccounts").value = s.srpAccounts;
-    rebuildValveAccountSelect();
-    if (s.srpValveAccount) document.getElementById("srpValveAccount").value = s.srpValveAccount;
-
-    ["deviceId", "openTurns", "ghToken"].forEach(id => {
-      document.getElementById(id).addEventListener("change", () => {
-        const st = loadSettings();
-        st[id] = document.getElementById(id).value;
-        saveSettings(st);
-        if (id === "deviceId" && liveScheduleData) renderLiveSchedule(liveScheduleData);
-      });
-    });
-
-    document.getElementById("srpAccounts").addEventListener("change", () => {
-      const st = loadSettings();
-      st.srpAccounts = document.getElementById("srpAccounts").value;
-      saveSettings(st);
-      rebuildValveAccountSelect();
-    });
-    document.getElementById("srpValveAccount").addEventListener("change", () => {
-      const st = loadSettings();
-      st.srpValveAccount = document.getElementById("srpValveAccount").value;
-      saveSettings(st);
-    });
-    document.getElementById("pullSrpBtn").addEventListener("click", () => pullFromSRP("preview"));
-    document.getElementById("pullSrpPublishBtn").addEventListener("click", () => pullFromSRP("publish"));
-    document.getElementById("srpModalCancel").addEventListener("click", () => {
-      document.getElementById("srpModal").classList.remove("show");
-    });
-    if (!loadSettings().srpAccounts) {
-      document.getElementById("srpAccounts").value = DEFAULT_SRP_ACCOUNTS;
-      rebuildValveAccountSelect();
-    }
-  })();
-
-  // ── Toast ──────────────────────────────────────────────────────────────────
 
   let toastTimer;
   function toast(msg, duration = 3000) {
@@ -871,13 +668,11 @@
     toastTimer = setTimeout(() => el.classList.remove("show"), duration);
   }
 
-  // ── Publish ────────────────────────────────────────────────────────────────
-
   async function publishToGitHub() {
     if (!validateTimes()) { toast("Fix the times — close must be after open."); return; }
 
     const token = document.getElementById("ghToken").value.trim();
-    if (!token) { toast("Enter a GitHub token to publish directly."); return; }
+    if (!token) { toast("Enter a GitHub token in Settings."); return; }
 
     const btn = document.getElementById("publishBtn");
     btn.disabled = true;
@@ -909,7 +704,7 @@
         setTimeout(checkFeed, 8000);
       } else {
         const err = await putRes.json();
-        toast(`GitHub error: ${formatGitHubError(err, "publish")}`);
+        toast(`GitHub: ${formatGitHubError(err, "publish")}`);
       }
     } catch (e) {
       toast(`Error: ${e.message}`);
@@ -918,12 +713,6 @@
       btn.innerHTML = "Publish to GitHub";
     }
   }
-
-  document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
-  document.getElementById("refreshBtn").addEventListener("click", checkFeed);
-  document.getElementById("loadFromLiveBtn").addEventListener("click", loadFromLiveSchedule);
-
-  // ── Fetch live schedule ──────────────────────────────────────────────────────
 
   async function checkFeed() {
     const dot = document.getElementById("statusDot");
@@ -944,18 +733,56 @@
       text.textContent = "Schedule live and signed";
 
       if (data.generated_at) {
-        age.textContent = `Updated ${new Date(data.generated_at).toLocaleString()}`;
+        age.textContent = new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
       }
 
       renderLiveSchedule(data);
     } catch {
       liveScheduleData = null;
       dot.className = "dot warn";
-      text.textContent = "No signed schedule found";
+      text.textContent = "No signed schedule yet";
       age.textContent = "";
-      document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">No signed schedule on GitHub yet.</li>';
+      document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">Nothing on GitHub yet.</li>';
     }
   }
+
+  (function init() {
+    const draft = loadDraft();
+    buildTimeOptions(document.getElementById("openTime"), draft.openTime);
+    buildTimeOptions(document.getElementById("closeTime"), draft.closeTime);
+    applyDraft(draft);
+
+    ["irrDate", "openTime", "closeTime"].forEach(id => {
+      document.getElementById(id).addEventListener("change", updatePreview);
+    });
+
+    document.getElementById("dateChips").addEventListener("click", e => {
+      const btn = e.target.closest("[data-date]");
+      if (!btn) return;
+      const d = new Date();
+      if (btn.dataset.date === "tomorrow") d.setDate(d.getDate() + 1);
+      document.getElementById("irrDate").value = toDateInputValue(d);
+      updatePreview();
+    });
+
+    const s = loadSettings();
+    if (s.deviceId)  document.getElementById("deviceId").value  = s.deviceId;
+    if (s.openTurns) document.getElementById("openTurns").value = s.openTurns;
+    if (s.ghToken)   document.getElementById("ghToken").value   = s.ghToken;
+
+    ["deviceId", "openTurns", "ghToken"].forEach(id => {
+      document.getElementById(id).addEventListener("change", () => {
+        const st = loadSettings();
+        st[id] = document.getElementById(id).value;
+        saveSettings(st);
+        if (id === "deviceId" && liveScheduleData) renderLiveSchedule(liveScheduleData);
+      });
+    });
+
+    document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);
+    document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
+    document.getElementById("statusBar").addEventListener("click", checkFeed);
+  })();
 
   checkFeed();
 </script>

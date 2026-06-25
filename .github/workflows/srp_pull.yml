@@ -6,11 +6,11 @@ on:
       srp_accounts:
         description: 'SRP account numbers (comma-separated)'
         required: true
-        default: '0072499,0072849,0072239,0072309'
+        default: '0072499'
       valve_account:
         description: 'Account number for this valve'
         required: true
-        default: '0072309'
+        default: '0072499'
       device_id:
         description: 'Device ID in manual_events.json'
         required: true

@@ -10,10 +10,7 @@ const SRP_API = 'https://water.gateway.srpnet.com/schedule/account';
 const ARIZONA_OFFSET = '-07:00'; // America/Phoenix — no DST
 
 const ACCOUNT_NAMES = {
-  '0072499': 'Mark & Brian',
-  '0072849': 'Mai',
-  '0072239': 'Shaun & Parv - 320',
-  '0072309': '316',
+  '0072499': '245 w 9th place',
 };
 
 const accounts = (process.env.SRP_ACCOUNTS || '')
