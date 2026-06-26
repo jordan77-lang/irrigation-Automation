@@ -212,6 +212,17 @@
       padding: 0.55rem 0.65rem; margin-bottom: 0.5rem; font-size: 0.82rem;
     }
     .sync-log-current .row { display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.15rem; }
+    .device-telemetry { display: grid; grid-template-columns: 1fr 1fr; gap: 0.35rem 1rem; }
+    .telemetry-row {
+      display: flex; justify-content: space-between; gap: 0.75rem;
+      padding: 0.35rem 0; border-bottom: 1px solid var(--border);
+      font-size: 0.84rem;
+    }
+    .telemetry-label { color: var(--muted); }
+    .telemetry-value { font-weight: 600; text-align: right; }
+    @media (max-width: 480px) {
+      .device-telemetry { grid-template-columns: 1fr; }
+    }
     .status-bar.sync-flash {
       animation: syncFlash 1.2s ease;
       border-color: var(--accent);
@@ -250,6 +261,14 @@
       <li class="when">Publish a schedule to start timing.</li>
     </ul>
   </details>
+
+  <div class="card">
+    <div class="card-title">Device telemetry</div>
+    <p class="card-hint">Latest runtime snapshot the stepper published while it was on Wi-Fi.</p>
+    <div class="device-telemetry" id="deviceTelemetry">
+      <div class="empty-sched">No device telemetry yet.</div>
+    </div>
+  </div>
 
   <div class="card">
     <div class="actions">
@@ -315,8 +334,8 @@
       <p class="settings-hint">
         Stored only for this tab session.
         <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation" target="_blank" rel="noopener">Classic token</a>
-        needs <code>repo</code> + <code>workflow</code>.
-        Fine-grained needs Contents + Actions write on this repo.
+        needs <code>repo</code> to publish schedules and <code>workflow</code> only for SRP refresh.
+        Fine-grained needs Contents: Read and write to publish, plus Actions: Read and write for SRP refresh.
         The stepper tell also needs a device token in firmware (<code>GITHUB_STATUS_TOKEN</code> in config.h).
       </p>
       <div class="row">
@@ -386,11 +405,26 @@
   }
 
   function loadSyncLog() {
-    try { return JSON.parse(localStorage.getItem(SYNC_LOG_KEY)) || []; } catch { return []; }
+    try { return normalizeSyncLog(JSON.parse(localStorage.getItem(SYNC_LOG_KEY)) || []); } catch { return []; }
+  }
+
+  function normalizeSyncLog(entries) {
+    const byRange = new Map();
+    for (const entry of entries) {
+      if (!entry?.open || !entry?.close || !entry?.publishAt) continue;
+      const key = `${entry.open}|${entry.close}`;
+      const prev = byRange.get(key);
+      if (!prev || entry.publishAt > prev.publishAt) {
+        byRange.set(key, entry);
+      }
+    }
+    return [...byRange.values()]
+      .sort((a, b) => b.publishAt - a.publishAt)
+      .slice(0, 15);
   }
 
   function saveSyncLog(entries) {
-    localStorage.setItem(SYNC_LOG_KEY, JSON.stringify(entries.slice(0, 15)));
+    localStorage.setItem(SYNC_LOG_KEY, JSON.stringify(normalizeSyncLog(entries)));
   }
 
   function logSyncEvent(label, ts, note) {
@@ -447,12 +481,19 @@
   function backfillSyncLogFromAck(ack, live) {
     if (!ack?.open_time || !ack?.close_time) return;
     const recvTs = parseIsoSafe(ack.received_at)?.getTime();
+    const ackGeneratedAt = ack.schedule_generated_at || live?.generated_at || "";
     const entries = loadSyncLog();
     let changed = false;
     for (const e of entries) {
       if (e.open === ack.open_time && e.close === ack.close_time) {
-        if (!e.signedAt && live?.generated_at) {
-          e.signedAt = parseIsoSafe(live.generated_at)?.getTime() || e.publishAt;
+        const sameVersion = !e.generatedAt || !ackGeneratedAt || e.generatedAt === ackGeneratedAt;
+        if (!sameVersion) continue;
+        if (!e.generatedAt && ackGeneratedAt) {
+          e.generatedAt = ackGeneratedAt;
+          changed = true;
+        }
+        if (!e.signedAt && ackGeneratedAt) {
+          e.signedAt = parseIsoSafe(ackGeneratedAt)?.getTime() || e.publishAt;
           changed = true;
         }
         if (!e.stepperAt && recvTs) {
@@ -467,6 +508,7 @@
   function reconcileActiveSyncSession(ack) {
     if (!syncSession || syncSession.stepperAt || !ack) return;
     if (syncSession.open !== ack.open_time || syncSession.close !== ack.close_time) return;
+    if (syncSession.generatedAt && ack.schedule_generated_at && syncSession.generatedAt !== ack.schedule_generated_at) return;
     const recvTs = parseIsoSafe(ack.received_at)?.getTime() || Date.now();
     if (!syncSession.signedAt) syncSession.signedAt = recvTs;
     finalizeSyncSession(recvTs);
@@ -477,6 +519,7 @@
       publishAt: Date.now(),
       signedAt: null,
       stepperAt: null,
+      generatedAt: expected.generatedAt || "",
       open: expected.open,
       close: expected.close,
     };
@@ -531,6 +574,12 @@
 
   function formatGitHubError(err, action) {
     const msg = err?.message || String(err);
+      if (/bad credentials/i.test(msg)) {
+        if (action === "srp") {
+          return `Bad credentials — use a token with Actions: Read and write on ${REPO} (classic: workflow scope).`;
+        }
+        return `Bad credentials — use a token with Contents: Read and write on ${REPO} (classic: repo scope).`;
+      }
     if (/resource not accessible/i.test(msg)) {
       if (action === "srp") {
         return `${msg} — token needs Actions: Read and write (classic: add workflow scope).`;
@@ -539,6 +588,16 @@
     }
     return msg;
   }
+
+    async function readGitHubError(response, action) {
+      let err;
+      try {
+        err = await response.json();
+      } catch {
+        err = { message: `${response.status} ${response.statusText}`.trim() };
+      }
+      return formatGitHubError(err, action);
+    }
 
   function roundToMinute(date) {
     const d = new Date(date);
@@ -1008,7 +1067,12 @@
       const headers = githubApiHeaders(token);
 
       const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, { headers });
-      const sha = getRes.ok ? (await getRes.json()).sha : undefined;
+      if (!getRes.ok && getRes.status !== 404) {
+        toast(`GitHub: ${await readGitHubError(getRes, "publish")}`);
+        return;
+      }
+
+      const sha = getRes.status === 404 ? undefined : (await getRes.json()).sha;
 
       const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
         method: "PUT", headers,
@@ -1020,14 +1084,13 @@
       });
 
       if (putRes.ok) {
-        const expected = { open: events[0].time, close: events[1].time };
+        const expected = { generatedAt: payload.generated_at, open: events[0].time, close: events[1].time };
         beginSyncSession(expected);
         toast("Published — signing on GitHub…", 4000);
         stopDevicePoll();
         pollUntilSigned(expected);
       } else {
-        const err = await putRes.json();
-        toast(`GitHub: ${formatGitHubError(err, "publish")}`);
+        toast(`GitHub: ${await readGitHubError(putRes, "publish")}`);
       }
     } catch (e) {
       toast(`Error: ${e.message}`);
@@ -1110,6 +1173,59 @@
     dot.className = "dot warn";
     text.textContent = "Waiting for stepper…";
     age.textContent = "Plug in device after publishing";
+  }
+
+  function formatPowerProfile(profile) {
+    if (profile === 2) return "awake";
+    if (profile === 1) return "light sleep";
+    if (profile === 0) return "deep sleep";
+    return "unknown";
+  }
+
+  function formatTelemetryDate(iso) {
+    const dt = parseIsoSafe(iso);
+    return dt
+      ? dt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })
+      : "—";
+  }
+
+  function renderDeviceTelemetry() {
+    const host = document.getElementById("deviceTelemetry");
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const ack = deviceStatusData?.[deviceId];
+
+    if (!ack) {
+      host.innerHTML = '<div class="empty-sched">No device telemetry yet.</div>';
+      return;
+    }
+
+    const powerBits = [formatPowerProfile(Number(ack.power_profile))];
+    if (typeof ack.pg_good === "boolean") powerBits.push(`PG ${ack.pg_good ? "good" : "not good"}`);
+    if (Number.isFinite(Number(ack.vbus_volts))) powerBits.push(`${Number(ack.vbus_volts).toFixed(1)}V`);
+
+    const lastMove = ack.last_event_action || ack.last_move_result
+      ? [ack.last_event_action, ack.last_move_result].filter(Boolean).join(" ")
+      : "—";
+
+    const rows = [
+      ["State", ack.state || "—"],
+      ["Detail", ack.detail || "—"],
+      ["Last report", formatTelemetryDate(ack.received_at)],
+      ["Power", powerBits.join(" · ")],
+      ["Wi-Fi RSSI", Number.isFinite(Number(ack.wifi_rssi_dbm)) ? `${ack.wifi_rssi_dbm} dBm` : "—"],
+      ["Virtual pos", Number.isFinite(Number(ack.virtual_position_deg)) ? `${Math.round(Number(ack.virtual_position_deg))}°` : "—"],
+      ["Last move", lastMove],
+      ["Last event time", formatTelemetryDate(ack.last_event_time)],
+      ["Wake cause", ack.wake_cause ?? "—"],
+      ["Uptime", Number.isFinite(Number(ack.uptime_s)) ? formatDuration(Number(ack.uptime_s) * 1000) : "—"],
+    ];
+
+    host.innerHTML = rows.map(([label, value]) => `
+      <div class="telemetry-row">
+        <span class="telemetry-label">${label}</span>
+        <span class="telemetry-value">${value}</span>
+      </div>
+    `).join("");
   }
 
   function stopSigningPoll() {
@@ -1215,6 +1331,7 @@
 
       renderLiveSchedule(data);
       renderDeviceStatus();
+      renderDeviceTelemetry();
 
       if (syncSession && !syncSession.signedAt && scheduleMatchesExpected({ open: syncSession.open, close: syncSession.close })) {
         markScheduleSigned();
@@ -1257,6 +1374,7 @@
       age.textContent = "";
       document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">Nothing on GitHub yet.</li>';
       renderDeviceStatus();
+      renderDeviceTelemetry();
     }
   }
 
@@ -1312,6 +1430,7 @@
     document.getElementById("statusBar").addEventListener("click", () => checkFeed({ softFail: true }));
     setInterval(() => checkFeed(), 10000);
     renderSyncLog();
+    renderDeviceTelemetry();
   })();
 
   checkFeed().then(() => {
@@ -1320,6 +1439,7 @@
     wasStepperSynced = scheduleAckMatches(liveScheduleData, deviceStatusData?.[deviceId], deviceId);
     backfillSyncLogFromAck(deviceStatusData?.[deviceId], liveScheduleData);
     renderSyncLog();
+    renderDeviceTelemetry();
   });
 </script>
 </body>

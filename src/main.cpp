@@ -113,6 +113,14 @@ struct ScheduleEvent {
   uint32_t expected_duration_s = 60;
 };
 
+static String runtime_state = "booting";
+static String runtime_detail;
+static String last_event_id;
+static String last_event_action;
+static String last_event_time;
+static String last_move_result;
+static int last_wakeup_cause = -1;
+
 // ---------------------------------------------------------------------------
 // Logging helpers
 // ---------------------------------------------------------------------------
@@ -124,6 +132,18 @@ static void log_line(const char* msg) {
 static void log_f(const char* label, float v) {
   Serial.print(label);
   Serial.println(v);
+}
+
+static void set_runtime_status(const char* state, const String& detail = String()) {
+  runtime_state = state ? state : "";
+  runtime_detail = detail;
+}
+
+static void remember_event_result(const ScheduleEvent& event, bool ok) {
+  last_event_id = event.id;
+  last_event_action = event.action;
+  last_event_time = "";
+  last_move_result = ok ? "ok" : "failed";
 }
 
 // ---------------------------------------------------------------------------
@@ -286,8 +306,18 @@ static bool http_get_string(const char* url, String& out) {
 
 static String iso_utc_now() {
   time_t now = time(nullptr);
+  if (now <= 0) return "";
   struct tm tm;
   gmtime_r(&now, &tm);
+  char buf[32];
+  strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
+  return String(buf);
+}
+
+static String iso_utc(time_t ts) {
+  if (ts <= 0) return "";
+  struct tm tm;
+  gmtime_r(&ts, &tm);
   char buf[32];
   strftime(buf, sizeof(buf), "%Y-%m-%dT%H:%M:%SZ", &tm);
   return String(buf);
@@ -327,42 +357,48 @@ static String base64_decode_str(const String& in) {
   return out;
 }
 
+static float read_vbus_volts();
+static bool is_pg_good();
+
 static bool status_report_enabled() {
   return GITHUB_STATUS_TOKEN[0] != '\0';
 }
 
-static bool report_schedule_received(const String& schedule_json) {
+static bool report_device_status(const String* schedule_json = nullptr) {
   if (!status_report_enabled()) return false;
 
-  DynamicJsonDocument sched(max((size_t)4096, schedule_json.length() + 2048));
-  if (deserializeJson(sched, schedule_json)) {
-    log_line("Status report: schedule JSON parse failed");
-    return false;
+  String generated_at;
+  String open_time;
+  String close_time;
+  if (schedule_json) {
+    DynamicJsonDocument sched(max((size_t)4096, schedule_json->length() + 2048));
+    if (deserializeJson(sched, *schedule_json)) {
+      log_line("Status report: schedule JSON parse failed");
+      return false;
+    }
+
+    generated_at = sched["generated_at"] | "";
+    if (!generated_at.length()) {
+      log_line("Status report: no generated_at");
+      return false;
+    }
+
+    JsonArray events = sched["devices"][DEVICE_ID].as<JsonArray>();
+    if (events.isNull()) {
+      log_line("Status report: no events for device");
+      return false;
+    }
+
+    for (JsonObject evt : events) {
+      const char* action = evt["action"] | "";
+      const char* when = evt["time"] | "";
+      if (!when[0]) continue;
+      if (strcmp(action, "open") == 0 && !open_time.length()) open_time = when;
+      if (strcmp(action, "close") == 0 && !close_time.length()) close_time = when;
+    }
   }
 
-  const char* generated_at = sched["generated_at"] | "";
-  if (!generated_at[0]) {
-    log_line("Status report: no generated_at");
-    return false;
-  }
-
-  JsonArray events = sched["devices"][DEVICE_ID].as<JsonArray>();
-  if (events.isNull()) {
-    log_line("Status report: no events for device");
-    return false;
-  }
-
-  const char* open_time = "";
-  const char* close_time = "";
-  for (JsonObject evt : events) {
-    const char* action = evt["action"] | "";
-    const char* when = evt["time"] | "";
-    if (!when[0]) continue;
-    if (strcmp(action, "open") == 0 && !open_time[0]) open_time = when;
-    if (strcmp(action, "close") == 0 && !close_time[0]) close_time = when;
-  }
-
-  String received_at = iso_utc_now();
+  String status_at = iso_utc_now();
   DynamicJsonDocument status_doc(4096);
   deserializeJson(status_doc, "{}");
 
@@ -400,10 +436,25 @@ static bool report_schedule_received(const String& schedule_json) {
   JsonObject dev = root[DEVICE_ID].is<JsonObject>()
       ? root[DEVICE_ID].as<JsonObject>()
       : root.createNestedObject(DEVICE_ID);
-  dev["schedule_generated_at"] = generated_at;
-  dev["received_at"] = received_at;
-  dev["open_time"] = open_time;
-  dev["close_time"] = close_time;
+  if (generated_at.length()) dev["schedule_generated_at"] = generated_at;
+  if (status_at.length()) dev["received_at"] = status_at;
+  if (open_time.length()) dev["open_time"] = open_time;
+  if (close_time.length()) dev["close_time"] = close_time;
+  dev["state"] = runtime_state;
+  dev["detail"] = runtime_detail;
+  dev["power_profile"] = POWER_PROFILE;
+  dev["pg_good"] = is_pg_good();
+  dev["vbus_volts"] = read_vbus_volts();
+  dev["virtual_position_deg"] = current_virtual_position;
+  dev["uptime_s"] = millis() / 1000UL;
+  dev["wake_cause"] = last_wakeup_cause;
+  if (WiFi.status() == WL_CONNECTED) {
+    dev["wifi_rssi_dbm"] = WiFi.RSSI();
+  }
+  if (last_event_id.length()) dev["last_event_id"] = last_event_id;
+  if (last_event_action.length()) dev["last_event_action"] = last_event_action;
+  if (last_event_time.length()) dev["last_event_time"] = last_event_time;
+  if (last_move_result.length()) dev["last_move_result"] = last_move_result;
 
   String status_json;
   serializeJson(status_doc, status_json);
@@ -455,8 +506,8 @@ static bool report_schedule_received(const String& schedule_json) {
     http.end();
 
     if (code == 200 || code == 201) {
-      prefs.putString("sched_ack_gen", generated_at);
-      log_line("Status report: device ack published");
+      if (generated_at.length()) prefs.putString("sched_ack_gen", generated_at);
+      log_line("Status report: device status published");
       return true;
     }
     Serial.print("Status report HTTP ");
@@ -504,7 +555,8 @@ static bool fetch_and_cache_schedule() {
   Serial.println(schedule_generated_at(json));
   Serial.print("Device fetch time: ");
   Serial.println(iso_utc_now());
-  if (!report_schedule_received(json)) {
+  set_runtime_status("schedule-synced", "Signed schedule cached");
+  if (!report_device_status(&json)) {
     log_line("Status report failed — site may not show sync yet");
   }
   return true;
@@ -1012,11 +1064,13 @@ void setup() {
   led_blink(2);
 
   esp_sleep_wakeup_cause_t cause = esp_sleep_get_wakeup_cause();
+  last_wakeup_cause = (int)cause;
   Serial.print("Wake cause: ");
   Serial.println((int)cause);
   if (cause == ESP_SLEEP_WAKEUP_UNDEFINED) {
     log_line("Power-on boot — syncing time and fetching schedule");
   }
+  set_runtime_status("booting", cause == ESP_SLEEP_WAKEUP_UNDEFINED ? "Power-on boot" : "Wake cycle");
 
   prefs.begin(PREFS_NS, false);
   current_virtual_position = prefs.getFloat("virtual_pos", CLOSED_VIRTUAL_ANGLE);
@@ -1028,9 +1082,11 @@ void setup() {
   }
 
   if (connect_wifi()) {
+    set_runtime_status("online", "Wi-Fi connected for NTP");
     sync_ntp();
     disconnect_wifi();
   } else {
+    set_runtime_status("offline", "Wi-Fi connect failed");
     log_line("Wi-Fi failed — using cached schedule if available");
   }
 
@@ -1063,6 +1119,7 @@ void setup() {
   Serial.print("Next event: ");
   Serial.println(next.id);
   log_time("Event time: ", next.timestamp);
+  set_runtime_status("waiting", String("Next ") + next.action + " at " + iso_utc(next.timestamp));
 
   if (now < next.timestamp - WAKE_EARLY_SEC) {
     Serial.print("Waiting until ");
@@ -1103,6 +1160,7 @@ void setup() {
 
   Serial.print("Executing ");
   Serial.println(next.action);
+  set_runtime_status("executing", String(next.action) + " in progress");
   led_blink(5, 80, 80);
 
   uint32_t timeout = next.expected_duration_s * 1000UL;
@@ -1110,13 +1168,22 @@ void setup() {
   if (timeout > MOVE_TIMEOUT_MS) timeout = MOVE_TIMEOUT_MS;
 
   bool ok = move_to_virtual_angle(next.virtual_angle, timeout);
+  remember_event_result(next, ok);
+  last_event_time = iso_utc(next.timestamp);
   if (ok) {
     mark_event_done(next.id);
+    set_runtime_status("idle", String(next.action) + " complete");
     log_line("Event complete");
     led_blink(10, 50, 50);
   } else {
+    set_runtime_status("error", String(next.action) + " failed");
     log_line("Event failed — will retry next wake");
     led_blink(3, 500, 200);
+  }
+
+  if (connect_wifi()) {
+    report_device_status();
+    disconnect_wifi();
   }
 
   board_restart_after(5);
