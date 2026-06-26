@@ -1086,7 +1086,7 @@
       if (scheduleMatchesExpected(expected)) {
         stopSigningPoll();
         markScheduleSigned();
-        toast(`Schedule live and signed ✓ (+${formatDuration(Date.now() - (syncSession?.publishAt || Date.now())})`, 5000);
+        toast(`Schedule live and signed ✓ (+${formatDuration(Date.now() - (syncSession?.publishAt || Date.now()))})`, 5000);
         startDevicePoll();
         return;
       }
