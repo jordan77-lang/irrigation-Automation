@@ -119,6 +119,7 @@ static String last_event_id;
 static String last_event_action;
 static String last_event_time;
 static String last_move_result;
+static String last_move_detail;
 static int last_wakeup_cause = -1;
 
 // ---------------------------------------------------------------------------
@@ -139,11 +140,12 @@ static void set_runtime_status(const char* state, const String& detail = String(
   runtime_detail = detail;
 }
 
-static void remember_event_result(const ScheduleEvent& event, bool ok) {
+static void remember_event_result(const ScheduleEvent& event, bool ok, const String& detail = String()) {
   last_event_id = event.id;
   last_event_action = event.action;
   last_event_time = "";
   last_move_result = ok ? "ok" : "failed";
+  last_move_detail = detail;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +457,7 @@ static bool report_device_status(const String* schedule_json = nullptr) {
   if (last_event_action.length()) dev["last_event_action"] = last_event_action;
   if (last_event_time.length()) dev["last_event_time"] = last_event_time;
   if (last_move_result.length()) dev["last_move_result"] = last_move_result;
+  if (last_move_detail.length()) dev["last_move_detail"] = last_move_detail;
 
   String status_json;
   serializeJson(status_doc, status_json);
@@ -833,6 +836,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   disconnect_wifi();
 
   if (!wait_power_good()) {
+    last_move_detail = "power-pd-not-ready";
     log_line("Power not good — skipping move");
     motor_disable();
     return false;
@@ -843,6 +847,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
     if (target > CLOSED_VIRTUAL_ANGLE + 180.0f && reconcile_virtual_before_open(target)) {
       delta = target - current_virtual_position;
     } else {
+      last_move_detail = "already-at-target";
       Serial.println("Already at target — no steps needed");
       led_blink(1, 400, 0);
       return true;
@@ -853,6 +858,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   int direction = delta > 0 ? 1 : -1;
   const long total_steps = labs((long)(delta / degrees_per_microstep));
   if (total_steps <= 0) {
+    last_move_detail = "no-steps-after-quantization";
     log_line("No move steps after quantization");
     return true;
   }
@@ -870,6 +876,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
     digitalWrite(PIN_DIR, direction > 0 ? HIGH : LOW);
     motor_enable();
     if (stepper_driver.hardwareDisabled()) {
+      last_move_detail = "tmc-enable-failed";
       log_line("TMC2209 still disabled after enable");
       motor_disable();
       return false;
@@ -934,8 +941,10 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
       log_f("Encoder deg before: ", enc_before);
       log_f("Encoder deg after: ", enc_after);
       if (!multi_turn && enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
+        last_move_detail = "encoder-no-motion";
         log_line("Encoder did not move — treating as failure");
       } else {
+        last_move_detail = multi_turn ? "move-complete-multi-turn" : "move-complete";
         current_virtual_position = target;
         prefs.putFloat("virtual_pos", current_virtual_position);
         if (fabs(target - CLOSED_VIRTUAL_ANGLE) < degrees_per_microstep && enc_after >= 0.0f) {
@@ -945,12 +954,19 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
         return true;
       }
     } else {
-      if (fail_timeout) log_line("Move timeout");
+      if (fail_timeout) {
+        last_move_detail = "move-timeout";
+        log_line("Move timeout");
+      }
       if (fail_pg) {
+        last_move_detail = "pg-lost-during-move";
         log_line("PG lost during move");
         log_power_state("PG lost:");
       }
-      if (fail_diag) log_line("DIAG fault asserted during move");
+      if (fail_diag) {
+        last_move_detail = "diag-fault";
+        log_line("DIAG fault asserted during move");
+      }
     }
 
     if (attempt < MOTION_RETRY_COUNT) {
@@ -959,6 +975,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
       Serial.println(" with slower ramp");
       delay(300);
       if (!wait_power_good()) {
+        last_move_detail = "power-pd-not-ready-retry";
         log_line("Power not good before retry");
         break;
       }
@@ -966,8 +983,9 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
     }
   }
 
+  if (!last_move_detail.length()) last_move_detail = "move-failed";
   led_sos();
-  return true;
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1168,15 +1186,15 @@ void setup() {
   if (timeout > MOVE_TIMEOUT_MS) timeout = MOVE_TIMEOUT_MS;
 
   bool ok = move_to_virtual_angle(next.virtual_angle, timeout);
-  remember_event_result(next, ok);
+  remember_event_result(next, ok, last_move_detail);
   last_event_time = iso_utc(next.timestamp);
   if (ok) {
     mark_event_done(next.id);
-    set_runtime_status("idle", String(next.action) + " complete");
+    set_runtime_status("idle", String(next.action) + " complete" + (last_move_detail.length() ? (String(" (") + last_move_detail + ")") : ""));
     log_line("Event complete");
     led_blink(10, 50, 50);
   } else {
-    set_runtime_status("error", String(next.action) + " failed");
+    set_runtime_status("error", String(next.action) + " failed" + (last_move_detail.length() ? (String(" (") + last_move_detail + ")") : ""));
     log_line("Event failed — will retry next wake");
     led_blink(3, 500, 200);
   }

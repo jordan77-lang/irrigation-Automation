@@ -486,9 +486,7 @@
     let changed = false;
     for (const e of entries) {
       if (e.open === ack.open_time && e.close === ack.close_time) {
-        const sameVersion = !e.generatedAt || !ackGeneratedAt || e.generatedAt === ackGeneratedAt;
-        if (!sameVersion) continue;
-        if (!e.generatedAt && ackGeneratedAt) {
+        if (ackGeneratedAt && e.generatedAt !== ackGeneratedAt) {
           e.generatedAt = ackGeneratedAt;
           changed = true;
         }
@@ -508,7 +506,9 @@
   function reconcileActiveSyncSession(ack) {
     if (!syncSession || syncSession.stepperAt || !ack) return;
     if (syncSession.open !== ack.open_time || syncSession.close !== ack.close_time) return;
-    if (syncSession.generatedAt && ack.schedule_generated_at && syncSession.generatedAt !== ack.schedule_generated_at) return;
+    if (ack.schedule_generated_at && syncSession.generatedAt !== ack.schedule_generated_at) {
+      syncSession.generatedAt = ack.schedule_generated_at;
+    }
     const recvTs = parseIsoSafe(ack.received_at)?.getTime() || Date.now();
     if (!syncSession.signedAt) syncSession.signedAt = recvTs;
     finalizeSyncSession(recvTs);
@@ -1206,6 +1206,7 @@
     const lastMove = ack.last_event_action || ack.last_move_result
       ? [ack.last_event_action, ack.last_move_result].filter(Boolean).join(" ")
       : "—";
+    const lastMoveDetail = ack.last_move_detail || "—";
 
     const rows = [
       ["State", ack.state || "—"],
@@ -1215,6 +1216,7 @@
       ["Wi-Fi RSSI", Number.isFinite(Number(ack.wifi_rssi_dbm)) ? `${ack.wifi_rssi_dbm} dBm` : "—"],
       ["Virtual pos", Number.isFinite(Number(ack.virtual_position_deg)) ? `${Math.round(Number(ack.virtual_position_deg))}°` : "—"],
       ["Last move", lastMove],
+      ["Move detail", lastMoveDetail],
       ["Last event time", formatTelemetryDate(ack.last_event_time)],
       ["Wake cause", ack.wake_cause ?? "—"],
       ["Uptime", Number.isFinite(Number(ack.uptime_s)) ? formatDuration(Number(ack.uptime_s) * 1000) : "—"],
