@@ -359,6 +359,18 @@
   let signingPollTimer = null;
   let syncSession = null;
   let wasStepperSynced = false;
+  let lastLiveFingerprint = "";
+
+  function scheduleFingerprint(data, deviceId) {
+    if (!data?.generated_at) return "";
+    const ev = eventTimesForDevice(data, deviceId);
+    return `${data.generated_at}|${ev.open}|${ev.close}`;
+  }
+
+  function ackFingerprint(live, ack, deviceId) {
+    if (!scheduleAckMatches(live, ack, deviceId)) return "";
+    return `${scheduleFingerprint(live, deviceId)}|${ack.received_at || ""}`;
+  }
 
   function formatLogClock(ts) {
     return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
@@ -424,9 +436,39 @@
       const parts = [`<strong>${range || "Schedule"}</strong>`];
       parts.push(`publish ${formatLogClock(e.publishAt)}`);
       if (e.signedAt) parts.push(`sign +${formatDuration(e.signedAt - e.publishAt)}`);
+      else parts.push("sign waiting…");
       if (e.stepperAt) parts.push(`stepper +${formatDuration(e.stepperAt - e.publishAt)}`);
+      else parts.push("stepper waiting…");
       return `<li>${parts.join(" · ")}</li>`;
     }).join("");
+  }
+
+  function backfillSyncLogFromAck(ack, live) {
+    if (!ack?.open_time || !ack?.close_time) return;
+    const recvTs = parseIsoSafe(ack.received_at)?.getTime();
+    const entries = loadSyncLog();
+    let changed = false;
+    for (const e of entries) {
+      if (e.open === ack.open_time && e.close === ack.close_time) {
+        if (!e.signedAt && live?.generated_at) {
+          e.signedAt = parseIsoSafe(live.generated_at)?.getTime() || e.publishAt;
+          changed = true;
+        }
+        if (!e.stepperAt && recvTs) {
+          e.stepperAt = recvTs;
+          changed = true;
+        }
+      }
+    }
+    if (changed) saveSyncLog(entries);
+  }
+
+  function reconcileActiveSyncSession(ack) {
+    if (!syncSession || syncSession.stepperAt || !ack) return;
+    if (syncSession.open !== ack.open_time || syncSession.close !== ack.close_time) return;
+    const recvTs = parseIsoSafe(ack.received_at)?.getTime() || Date.now();
+    if (!syncSession.signedAt) syncSession.signedAt = recvTs;
+    finalizeSyncSession(recvTs);
   }
 
   function beginSyncSession(expected) {
@@ -438,6 +480,7 @@
       close: expected.close,
     };
     wasStepperSynced = false;
+    lastLiveFingerprint = "";
     logSyncEvent("Published", syncSession.publishAt, formatEventRange(expected.open, expected.close));
     renderSyncLog();
   }
@@ -1135,6 +1178,12 @@
       if (!/^[a-f0-9]{64}$/i.test(sig)) throw new Error("bad sig");
 
       liveScheduleData = data;
+      const liveFp = scheduleFingerprint(data, deviceId);
+      if (liveFp !== lastLiveFingerprint) {
+        lastLiveFingerprint = liveFp;
+        wasStepperSynced = false;
+      }
+
       dot.className = "dot ok";
       text.textContent = "Schedule live and signed";
 
@@ -1158,13 +1207,21 @@
       }
 
       const ack = deviceStatusData?.[deviceId];
+      backfillSyncLogFromAck(ack, data);
+      reconcileActiveSyncSession(ack);
+
       const synced = scheduleAckMatches(data, ack, deviceId);
 
       if (synced && !wasStepperSynced && !opts.skipSyncHandler) {
         wasStepperSynced = true;
         const recvTs = parseIsoSafe(ack?.received_at)?.getTime() || Date.now();
-        const publishAt = syncSession?.publishAt;
-        finalizeSyncSession(recvTs);
+        if (syncSession && !syncSession.stepperAt) {
+          if (!syncSession.signedAt) syncSession.signedAt = recvTs;
+          finalizeSyncSession(recvTs);
+        } else if (!syncSession) {
+          backfillSyncLogFromAck(ack, data);
+        }
+        const publishAt = loadSyncLog().find(e => e.open === ack.open_time && e.close === ack.close_time)?.publishAt;
         const elapsed = publishAt ? recvTs - publishAt : null;
         toast(elapsed != null ? `Stepper synced ✓ (+${formatDuration(elapsed)} from publish)` : "Stepper synced ✓", 6000);
         await forceSiteRefresh();
@@ -1239,7 +1296,10 @@
 
   checkFeed().then(() => {
     const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    lastLiveFingerprint = scheduleFingerprint(liveScheduleData, deviceId);
     wasStepperSynced = scheduleAckMatches(liveScheduleData, deviceStatusData?.[deviceId], deviceId);
+    backfillSyncLogFromAck(deviceStatusData?.[deviceId], liveScheduleData);
+    renderSyncLog();
   });
 </script>
 </body>
