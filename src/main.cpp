@@ -70,6 +70,9 @@
 #ifndef DEVICE_STATUS_PATH
 #define DEVICE_STATUS_PATH "schedules/device_status.json"
 #endif
+#ifndef SCHEDULE_POLL_SEC
+#define SCHEDULE_POLL_SEC 300  // recheck GitHub for schedule changes while waiting
+#endif
 
 static TMC2209 stepper_driver;
 static HardwareSerial& tmc_serial = Serial2;
@@ -304,7 +307,7 @@ static bool report_schedule_received(const String& schedule_json) {
     return false;
   }
 
-  String last_reported = prefs.getString("status_reported_at", "");
+  String last_reported = prefs.getString("sched_ack_gen", "");
   if (last_reported == generated_at) {
     log_line("Status report: already reported for this schedule");
     return true;
@@ -379,7 +382,7 @@ static bool report_schedule_received(const String& schedule_json) {
     return false;
   }
 
-  prefs.putString("status_reported_at", generated_at);
+  prefs.putString("sched_ack_gen", generated_at);
   log_line("Status report: device ack published");
   return true;
 }
@@ -407,6 +410,40 @@ static bool fetch_and_cache_schedule() {
   log_line("Schedule fetched and cached");
   report_schedule_received(json);
   return true;
+}
+
+static String schedule_generated_at(const String& json) {
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, json)) return "";
+  return String(doc["generated_at"] | "");
+}
+
+static bool poll_github_schedule_changed() {
+  String json;
+  String sig;
+  if (!connect_wifi()) return false;
+  if (!http_get_string(SCHEDULE_URL, json) || !http_get_string(SIGNATURE_URL, sig)) {
+    disconnect_wifi();
+    return false;
+  }
+  sig.trim();
+  if (!verify_hmac(json, sig, SIGN_KEY)) {
+    disconnect_wifi();
+    return false;
+  }
+  String remote_at = schedule_generated_at(json);
+  String cached_at = schedule_generated_at(load_cached_schedule());
+  disconnect_wifi();
+  return remote_at.length() > 0 && remote_at != cached_at;
+}
+
+static void restart_for_new_schedule() {
+  log_line("New schedule on GitHub — restarting");
+  if (connect_wifi()) {
+    fetch_and_cache_schedule();
+    disconnect_wifi();
+  }
+  esp_restart();
 }
 
 static bool load_schedule_json(String& json) {
@@ -775,10 +812,17 @@ static void board_sleep_seconds(uint64_t seconds) {
   const uint32_t start = millis();
   const uint32_t duration_ms = (uint32_t)(seconds * 1000ULL);
   uint32_t last_blink = 0;
+  uint32_t last_poll = start;
   while (millis() - start < duration_ms) {
     if (millis() - last_blink > 30000) {
       led_blink(1, 80, 0);
       last_blink = millis();
+    }
+    if (millis() - last_poll > (uint32_t)SCHEDULE_POLL_SEC * 1000UL) {
+      last_poll = millis();
+      if (poll_github_schedule_changed()) {
+        restart_for_new_schedule();
+      }
     }
     delay(200);
   }
@@ -899,9 +943,18 @@ void setup() {
   }
 
   ScheduleEvent next = find_next_event(schedule_json);
-  if (!next.valid) {
-    log_line("No upcoming events — sleep 24h");
-    board_restart_after(24 * 3600);
+  while (!next.valid) {
+    log_line("No upcoming events — checking for new schedule every 5 min");
+    board_sleep_seconds(SCHEDULE_POLL_SEC);
+    if (connect_wifi()) {
+      fetch_and_cache_schedule();
+      disconnect_wifi();
+    }
+    schedule_json = load_cached_schedule();
+    if (!schedule_json.length()) {
+      board_restart_after(3600);
+    }
+    next = find_next_event(schedule_json);
   }
 
   time_t now = time(nullptr);

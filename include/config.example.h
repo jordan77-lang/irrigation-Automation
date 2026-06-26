@@ -67,3 +67,4 @@
 // 1 = light sleep; 0 = deep sleep — only used when USE_AWAKE_WAIT is 0
 #define USE_LIGHT_SLEEP 1
 #define USB_SERIAL_WAIT_MS 500
+#define SCHEDULE_POLL_SEC 300  // recheck GitHub while waiting (seconds)

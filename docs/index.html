@@ -766,7 +766,7 @@
       });
 
       if (putRes.ok) {
-        toast("Published! Signing in ~1 min. ✓", 5000);
+        toast("Published! Signing in ~1 min. Device checks every 5 min or press reset. ✓", 6000);
         setTimeout(checkFeed, 8000);
         startDevicePoll();
       } else {
@@ -779,6 +779,27 @@
       btn.disabled = false;
       btn.innerHTML = "Publish to GitHub";
     }
+  }
+
+  function formatEventRange(openIso, closeIso) {
+    if (!openIso || !closeIso) return "";
+    const o = new Date(openIso);
+    const c = new Date(closeIso);
+    const fmt = d => d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    return `${fmt(o)} → ${fmt(c)}`;
+  }
+
+  function eventTimesForDevice(data, deviceId) {
+    const events = (data?.devices || {})[deviceId] || [];
+    const open = events.find(e => e.action === "open");
+    const close = events.find(e => e.action === "close");
+    return { open: open?.time, close: close?.time };
+  }
+
+  function scheduleAckMatches(live, ack, deviceId) {
+    if (!live?.generated_at || ack?.schedule_generated_at !== live.generated_at) return false;
+    const liveEv = eventTimesForDevice(live, deviceId);
+    return liveEv.open === ack.open_time && liveEv.close === ack.close_time;
   }
 
   function renderDeviceStatus() {
@@ -795,24 +816,29 @@
     }
 
     const ack = deviceStatusData?.[deviceId];
-    const synced = ack?.schedule_generated_at === liveScheduleData.generated_at;
+    const liveEv = eventTimesForDevice(liveScheduleData, deviceId);
+    const synced = scheduleAckMatches(liveScheduleData, ack, deviceId);
 
     if (synced) {
       dot.className = "dot ok";
       text.textContent = "On stepper ✓";
-      if (ack.received_at) {
-        age.textContent = `Received ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}`;
-      }
+      age.textContent = formatEventRange(ack.open_time, ack.close_time)
+        || (ack.received_at ? `Received ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}` : "");
       stopDevicePoll();
       return;
     }
 
     if (ack?.schedule_generated_at) {
       dot.className = "dot warn";
-      text.textContent = "Stepper has older schedule";
-      age.textContent = ack.received_at
-        ? `Last sync ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}`
-        : "";
+      const ackRange = formatEventRange(ack.open_time, ack.close_time);
+      const liveRange = formatEventRange(liveEv.open, liveEv.close);
+      if (ack.schedule_generated_at === liveScheduleData.generated_at && ackRange !== liveRange) {
+        text.textContent = "Stepper has stale times";
+        age.textContent = ackRange ? `Device: ${ackRange}` : "";
+      } else {
+        text.textContent = "Stepper has older schedule";
+        age.textContent = ackRange ? `${ackRange} · reboot device to sync` : "Reboot device to sync";
+      }
       return;
     }
 
@@ -856,7 +882,9 @@
       text.textContent = "Schedule live and signed";
 
       if (data.generated_at) {
-        age.textContent = new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+        const ev = eventTimesForDevice(data, deviceId);
+        age.textContent = formatEventRange(ev.open, ev.close)
+          || new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
       }
 
       if (dr.ok) {
@@ -868,7 +896,7 @@
       renderLiveSchedule(data);
       renderDeviceStatus();
 
-      const synced = deviceStatusData?.[deviceId]?.schedule_generated_at === data.generated_at;
+      const synced = scheduleAckMatches(data, deviceStatusData?.[deviceId], deviceId);
       if (data.generated_at && !synced && !devicePollTimer) startDevicePoll();
     } catch {
       liveScheduleData = null;
