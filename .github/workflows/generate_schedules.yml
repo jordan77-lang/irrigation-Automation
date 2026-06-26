@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: generate-schedules-main
+  cancel-in-progress: true
+
 jobs:
   generate:
     runs-on: ubuntu-latest
@@ -60,4 +64,5 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add schedules/schedules.json schedules/schedules.json.sig
           git commit -m "chore: update signed schedules" || echo "no changes to commit"
+          git pull --rebase origin main
           git push

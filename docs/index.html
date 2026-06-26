@@ -612,6 +612,22 @@
       return formatGitHubError(err, action);
     }
 
+    async function fetchGitHubFileSha(headers) {
+      const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, { headers });
+      if (!getRes.ok && getRes.status !== 404) {
+        throw new Error(await readGitHubError(getRes, "publish"));
+      }
+      return getRes.status === 404 ? undefined : (await getRes.json()).sha;
+    }
+
+    async function putGitHubFile(headers, body) {
+      return fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify(body),
+      });
+    }
+
   function roundToMinute(date) {
     const d = new Date(date);
     d.setSeconds(0, 0);
@@ -1079,22 +1095,30 @@
       const b64 = btoa(unescape(encodeURIComponent(content)));
       const headers = githubApiHeaders(token);
 
-      const getRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, { headers });
-      if (!getRes.ok && getRes.status !== 404) {
-        toast(`GitHub: ${await readGitHubError(getRes, "publish")}`);
+      let sha;
+      try {
+        sha = await fetchGitHubFileSha(headers);
+      } catch (err) {
+        toast(`GitHub: ${err.message}`);
         return;
       }
 
-      const sha = getRes.status === 404 ? undefined : (await getRes.json()).sha;
-
-      const putRes = await fetch(`https://api.github.com/repos/${REPO}/contents/${FILE_PATH}`, {
-        method: "PUT", headers,
-        body: JSON.stringify({
-          message: `schedule: ${events[0].time.slice(0,16)} open / close`,
-          content: b64,
-          ...(sha ? { sha } : {}),
-        }),
+      const buildPutBody = nextSha => ({
+        message: `schedule: ${events[0].time.slice(0,16)} open / close`,
+        content: b64,
+        ...(nextSha ? { sha: nextSha } : {}),
       });
+
+      let putRes = await putGitHubFile(headers, buildPutBody(sha));
+      if (putRes.status === 409) {
+        try {
+          sha = await fetchGitHubFileSha(headers);
+          putRes = await putGitHubFile(headers, buildPutBody(sha));
+        } catch (err) {
+          toast(`GitHub: ${err.message}`);
+          return;
+        }
+      }
 
       if (putRes.ok) {
         const expected = { generatedAt: payload.generated_at, open: events[0].time, close: events[1].time };
@@ -1103,7 +1127,8 @@
         stopDevicePoll();
         pollUntilSigned(expected);
       } else {
-        toast(`GitHub: ${await readGitHubError(putRes, "publish")}`);
+        const errMsg = await readGitHubError(putRes, "publish");
+        toast(`GitHub: ${putRes.status === 409 ? `${errMsg} — file changed on GitHub, refresh and try again.` : errMsg}`);
       }
     } catch (e) {
       toast(`Error: ${e.message}`);
