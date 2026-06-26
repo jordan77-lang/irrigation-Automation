@@ -301,12 +301,6 @@ static bool report_schedule_received(const String& schedule_json) {
     return false;
   }
 
-  String last_reported = prefs.getString("sched_ack_gen", "");
-  if (last_reported == generated_at) {
-    log_line("Status report: already reported for this schedule");
-    return true;
-  }
-
   JsonArray events = sched["devices"][DEVICE_ID].as<JsonArray>();
   if (events.isNull()) {
     log_line("Status report: no events for device");
@@ -360,25 +354,50 @@ static bool report_schedule_received(const String& schedule_json) {
   if (sha.length()) put_body += ",\"sha\":\"" + sha + "\"";
   put_body += "}";
 
-  HTTPClient http;
-  http.begin(api_url);
-  http.setTimeout(20000);
-  http.addHeader("Authorization", String("Bearer ") + GITHUB_STATUS_TOKEN);
-  http.addHeader("Accept", "application/vnd.github+json");
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("X-GitHub-Api-Version", "2022-11-28");
-  int code = http.PUT(put_body);
-  http.end();
+  for (int attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      Serial.print("Status report retry ");
+      Serial.println(attempt + 1);
+      delay(2000);
+      // Re-fetch sha in case the file changed between attempts
+      sha = "";
+      HTTPClient get_http;
+      get_http.begin(api_url);
+      get_http.setTimeout(15000);
+      get_http.addHeader("Authorization", String("Bearer ") + GITHUB_STATUS_TOKEN);
+      get_http.addHeader("Accept", "application/vnd.github+json");
+      get_http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+      if (get_http.GET() == 200) {
+        String body = get_http.getString();
+        StaticJsonDocument<512> doc;
+        if (!deserializeJson(doc, body)) sha = doc["sha"] | "";
+      }
+      get_http.end();
+      put_body = String("{\"message\":\"device ") + DEVICE_ID + ": schedule received\","
+        + "\"content\":\"" + b64 + "\"";
+      if (sha.length()) put_body += ",\"sha\":\"" + sha + "\"";
+      put_body += "}";
+    }
 
-  if (code != 200 && code != 201) {
+    HTTPClient http;
+    http.begin(api_url);
+    http.setTimeout(20000);
+    http.addHeader("Authorization", String("Bearer ") + GITHUB_STATUS_TOKEN);
+    http.addHeader("Accept", "application/vnd.github+json");
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("X-GitHub-Api-Version", "2022-11-28");
+    int code = http.PUT(put_body);
+    http.end();
+
+    if (code == 200 || code == 201) {
+      prefs.putString("sched_ack_gen", generated_at);
+      log_line("Status report: device ack published");
+      return true;
+    }
     Serial.print("Status report HTTP ");
     Serial.println(code);
-    return false;
   }
-
-  prefs.putString("sched_ack_gen", generated_at);
-  log_line("Status report: device ack published");
-  return true;
+  return false;
 }
 
 static String schedule_generated_at(const String& json) {
@@ -416,20 +435,34 @@ static bool fetch_and_cache_schedule() {
   }
 
   log_line("Schedule fetched and cached");
-  report_schedule_received(json);
+  if (!report_schedule_received(json)) {
+    log_line("Status report failed — site may not show sync yet");
+  }
   return true;
+}
+
+static bool fetch_schedule_with_retries(int attempts = 3) {
+  for (int i = 0; i < attempts; i++) {
+    if (i > 0) {
+      Serial.print("Schedule fetch retry ");
+      Serial.println(i + 1);
+      delay(3000);
+    }
+    if (fetch_and_cache_schedule()) return true;
+  }
+  return false;
 }
 
 static bool load_schedule_json(String& json) {
 #if REFRESH_SCHEDULE_EVERY_WAKE
   if (connect_wifi()) {
-    fetch_and_cache_schedule();
+    fetch_schedule_with_retries();
     disconnect_wifi();
   }
 #else
   if (schedule_cache_stale() || !LittleFS.exists(SCHEDULE_CACHE_PATH)) {
     if (connect_wifi()) {
-      fetch_and_cache_schedule();
+      fetch_schedule_with_retries();
       disconnect_wifi();
     }
   }
@@ -762,6 +795,24 @@ static void board_sleep_seconds(uint64_t seconds) {
 #endif
 }
 
+static bool wait_for_upcoming_events(String& schedule_json, ScheduleEvent& next) {
+  for (int i = 0; i < 20; i++) {
+    next = find_next_event(schedule_json);
+    if (next.valid) return true;
+
+    log_line("No upcoming events — retrying schedule fetch in 30s");
+    board_sleep_seconds(30);
+
+    if (connect_wifi()) {
+      fetch_schedule_with_retries();
+      disconnect_wifi();
+    }
+    schedule_json = load_cached_schedule();
+    if (!schedule_json.length()) break;
+  }
+  return false;
+}
+
 static void board_restart_after(uint64_t seconds) {
   board_sleep_seconds(seconds);
   esp_restart();
@@ -836,10 +887,10 @@ void setup() {
     board_restart_after(3600);
   }
 
-  ScheduleEvent next = find_next_event(schedule_json);
-  if (!next.valid) {
-    log_line("No upcoming events — plug in again after publishing a schedule");
-    board_restart_after(3600);
+  ScheduleEvent next;
+  if (!wait_for_upcoming_events(schedule_json, next)) {
+    log_line("No upcoming events after retries — restart in 5 min");
+    board_restart_after(300);
   }
 
   time_t now = time(nullptr);
@@ -852,8 +903,14 @@ void setup() {
     Serial.print((unsigned long)(next.timestamp - WAKE_EARLY_SEC - now));
     Serial.println(" s before event");
     sleep_until_event(next.timestamp);
+    // Re-sync time and refresh schedule in case publish finished while we waited
     if (connect_wifi()) {
       sync_ntp();
+      if (fetch_schedule_with_retries()) {
+        schedule_json = load_cached_schedule();
+        ScheduleEvent refreshed = find_next_event(schedule_json);
+        if (refreshed.valid) next = refreshed;
+      }
       disconnect_wifi();
     }
   }

@@ -301,8 +301,9 @@
   const REPO         = "jordan77-lang/irrigation-Automation";
   const FILE_PATH    = "schedules/manual_events.json";
   const RAW_BASE     = `https://raw.githubusercontent.com/${REPO}/main/schedules`;
-  const OPEN_MOVE_S  = 300;
+  const OPEN_MOVE_S  = 120;
   const CLOSE_MOVE_S = 60;
+  const MIN_RUN_MIN  = 5;
   const SRP_PROXY    = "https://irrigation.briandahlem.com";
   const SRP_API      = "https://water.gateway.srpnet.com/schedule/account";
   const ARIZONA_OFFSET = "-07:00";
@@ -673,6 +674,12 @@
       return false;
     }
     const ok = combineLocal(date, closeTime) > combineLocal(date, openTime);
+    const gapMin = ok ? (combineLocal(date, closeTime) - combineLocal(date, openTime)) / 60000 : 0;
+    if (ok && gapMin < MIN_RUN_MIN) {
+      err.textContent = `Close should be at least ${MIN_RUN_MIN} minutes after open (valve needs time to open).`;
+      err.classList.add("show");
+      return false;
+    }
     err.textContent = "Close must be after open on the same day.";
     err.classList.toggle("show", !ok);
     return ok;
@@ -798,6 +805,7 @@
       if (putRes.ok) {
         const expected = { open: events[0].time, close: events[1].time };
         toast("Published — signing on GitHub…", 4000);
+        stopDevicePoll();
         pollUntilSigned(expected);
       } else {
         const err = await putRes.json();
@@ -859,8 +867,11 @@
     if (synced) {
       dot.className = "dot ok";
       text.textContent = "On stepper ✓";
-      age.textContent = formatEventRange(ack.open_time, ack.close_time)
-        || (ack.received_at ? `Received ${formatEventRange(ack.open_time, ack.close_time) || new Date(parseIsoSafe(ack.received_at)).toLocaleString([], { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}` : "");
+      const range = formatEventRange(ack.open_time, ack.close_time);
+      const recv = ack.received_at
+        ? new Date(parseIsoSafe(ack.received_at)).toLocaleString([], { hour: "numeric", minute: "2-digit" })
+        : "";
+      age.textContent = recv ? `${range} · synced ${recv}` : range;
       return;
     }
 
@@ -939,7 +950,7 @@
 
   function startDevicePoll() {
     stopDevicePoll();
-    devicePollTimer = setInterval(checkFeed, 10000);
+    devicePollTimer = setInterval(checkFeed, 3000);
   }
 
   async function checkFeed() {
@@ -979,7 +990,8 @@
       renderDeviceStatus();
 
       const synced = scheduleAckMatches(data, deviceStatusData?.[deviceId], deviceId);
-      if (data.generated_at && !synced && !devicePollTimer) startDevicePoll();
+      if (data.generated_at && !synced) startDevicePoll();
+      else if (synced) stopDevicePoll();
     } catch {
       liveScheduleData = null;
       deviceStatusData = null;
@@ -1035,7 +1047,7 @@
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
     document.getElementById("statusBar").addEventListener("click", checkFeed);
     document.getElementById("deviceStatusBar").addEventListener("click", checkFeed);
-    setInterval(checkFeed, 15000);
+    setInterval(checkFeed, 10000);
   })();
 
   checkFeed();
