@@ -404,6 +404,12 @@
     return `${Math.floor(s / 60)}m ${s % 60}s`;
   }
 
+  const SYNC_TS_TOLERANCE_MS = 5000;
+
+  function isTimestampFreshForPublish(ts, publishAt) {
+    return Number.isFinite(ts) && Number.isFinite(publishAt) && ts >= (publishAt - SYNC_TS_TOLERANCE_MS);
+  }
+
   function loadSyncLog() {
     try { return normalizeSyncLog(JSON.parse(localStorage.getItem(SYNC_LOG_KEY)) || []); } catch { return []; }
   }
@@ -412,6 +418,8 @@
     const byRange = new Map();
     for (const entry of entries) {
       if (!entry?.open || !entry?.close || !entry?.publishAt) continue;
+      if (!isTimestampFreshForPublish(entry.signedAt, entry.publishAt)) entry.signedAt = null;
+      if (!isTimestampFreshForPublish(entry.stepperAt, entry.publishAt)) entry.stepperAt = null;
       const key = `${entry.open}|${entry.close}`;
       const prev = byRange.get(key);
       if (!prev || entry.publishAt > prev.publishAt) {
@@ -482,6 +490,7 @@
     if (!ack?.open_time || !ack?.close_time) return;
     const recvTs = parseIsoSafe(ack.received_at)?.getTime();
     const ackGeneratedAt = ack.schedule_generated_at || live?.generated_at || "";
+    const signTs = parseIsoSafe(ackGeneratedAt)?.getTime();
     const entries = loadSyncLog();
     let changed = false;
     for (const e of entries) {
@@ -490,11 +499,11 @@
           e.generatedAt = ackGeneratedAt;
           changed = true;
         }
-        if (!e.signedAt && ackGeneratedAt) {
-          e.signedAt = parseIsoSafe(ackGeneratedAt)?.getTime() || e.publishAt;
+        if (!e.signedAt && isTimestampFreshForPublish(signTs, e.publishAt)) {
+          e.signedAt = signTs;
           changed = true;
         }
-        if (!e.stepperAt && recvTs) {
+        if (!e.stepperAt && isTimestampFreshForPublish(recvTs, e.publishAt)) {
           e.stepperAt = recvTs;
           changed = true;
         }
@@ -510,7 +519,11 @@
       syncSession.generatedAt = ack.schedule_generated_at;
     }
     const recvTs = parseIsoSafe(ack.received_at)?.getTime() || Date.now();
-    if (!syncSession.signedAt) syncSession.signedAt = recvTs;
+    if (!isTimestampFreshForPublish(recvTs, syncSession.publishAt)) return;
+    if (!syncSession.signedAt) {
+      const signTs = parseIsoSafe(ack.schedule_generated_at)?.getTime();
+      syncSession.signedAt = isTimestampFreshForPublish(signTs, syncSession.publishAt) ? signTs : recvTs;
+    }
     finalizeSyncSession(recvTs);
   }
 
@@ -1348,6 +1361,10 @@
       if (synced && !wasStepperSynced && !opts.skipSyncHandler) {
         wasStepperSynced = true;
         const recvTs = parseIsoSafe(ack?.received_at)?.getTime() || Date.now();
+        if (!isTimestampFreshForPublish(recvTs, syncSession?.publishAt || recvTs)) {
+          renderSyncLog();
+          return;
+        }
         if (syncSession && !syncSession.stepperAt) {
           if (!syncSession.signedAt) syncSession.signedAt = recvTs;
           finalizeSyncSession(recvTs);
