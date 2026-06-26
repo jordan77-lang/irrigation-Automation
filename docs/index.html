@@ -187,6 +187,38 @@
 
     .field-error { color: var(--danger); font-size: 0.82rem; margin-top: 0.5rem; display: none; }
     .field-error.show { display: block; }
+
+    .sync-log-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 0.85rem 1rem;
+      margin-bottom: 1rem; box-shadow: var(--shadow); font-size: 0.82rem;
+    }
+    .sync-log-card summary {
+      cursor: pointer; font-weight: 600; color: var(--muted);
+      list-style: none; user-select: none; margin-bottom: 0.5rem;
+    }
+    .sync-log-card summary::-webkit-details-marker { display: none; }
+    .sync-log-list { list-style: none; }
+    .sync-log-list li {
+      padding: 0.35rem 0; border-bottom: 1px solid var(--border);
+      color: var(--text); line-height: 1.45;
+    }
+    .sync-log-list li:last-child { border-bottom: none; }
+    .sync-log-list .when { color: var(--muted); font-size: 0.78rem; }
+    .sync-log-list .delta { color: var(--accent-dark); font-weight: 600; }
+    .sync-log-current {
+      background: var(--accent-light); border-radius: 8px;
+      padding: 0.55rem 0.65rem; margin-bottom: 0.5rem; font-size: 0.82rem;
+    }
+    .sync-log-current .row { display: flex; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.15rem; }
+    .status-bar.sync-flash {
+      animation: syncFlash 1.2s ease;
+      border-color: var(--accent);
+    }
+    @keyframes syncFlash {
+      0%, 100% { box-shadow: var(--shadow); }
+      30%, 70% { box-shadow: 0 0 0 3px rgba(45, 106, 79, 0.35); }
+    }
   </style>
 </head>
 <body>
@@ -209,6 +241,14 @@
       <span class="right" id="deviceStatusAge"></span>
     </div>
   </div>
+
+  <details class="sync-log-card" id="syncLogCard" open>
+    <summary>Sync timing</summary>
+    <div id="syncLogCurrent" class="sync-log-current" hidden></div>
+    <ul class="sync-log-list" id="syncLogList">
+      <li class="when">Publish a schedule to start timing.</li>
+    </ul>
+  </details>
 
   <div class="card">
     <div class="actions">
@@ -298,6 +338,7 @@
 <script>
   const DRAFT_KEY    = "irr_draft_v5";
   const SETTINGS_KEY = "irr_settings_v2";
+  const SYNC_LOG_KEY = "irr_sync_log_v1";
   const REPO         = "jordan77-lang/irrigation-Automation";
   const FILE_PATH    = "schedules/manual_events.json";
   const RAW_BASE     = `https://raw.githubusercontent.com/${REPO}/main/schedules`;
@@ -315,6 +356,124 @@
   let lastSrpPreviewAt = null;
   let devicePollTimer = null;
   let signingPollTimer = null;
+  let syncSession = null;
+  let wasStepperSynced = false;
+
+  function formatLogClock(ts) {
+    return new Date(ts).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" });
+  }
+
+  function formatDuration(ms) {
+    if (ms == null || ms < 0) return "—";
+    if (ms < 1000) return `${ms}ms`;
+    const s = Math.round(ms / 1000);
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m ${s % 60}s`;
+  }
+
+  function loadSyncLog() {
+    try { return JSON.parse(localStorage.getItem(SYNC_LOG_KEY)) || []; } catch { return []; }
+  }
+
+  function saveSyncLog(entries) {
+    localStorage.setItem(SYNC_LOG_KEY, JSON.stringify(entries.slice(0, 15)));
+  }
+
+  function logSyncEvent(label, ts, note) {
+    console.log(`[irr-sync] ${label} ${formatLogClock(ts)}${note ? ` — ${note}` : ""}`);
+  }
+
+  function renderSyncLog() {
+    const entries = loadSyncLog();
+    const currentEl = document.getElementById("syncLogCurrent");
+    const listEl = document.getElementById("syncLogList");
+
+    if (syncSession) {
+      currentEl.hidden = false;
+      const rows = [
+        ["Published", syncSession.publishAt],
+        ["Signed live", syncSession.signedAt],
+        ["Stepper synced", syncSession.stepperAt],
+      ];
+      currentEl.innerHTML = rows.map(([label, ts]) => {
+        if (!ts) return `<div class="row"><span>${label}</span><span class="when">waiting…</span></div>`;
+        let delta = "";
+        if (label === "Signed live" && syncSession.publishAt) {
+          delta = ` <span class="delta">+${formatDuration(ts - syncSession.publishAt)}</span>`;
+        }
+        if (label === "Stepper synced") {
+          const parts = [];
+          if (syncSession.publishAt) parts.push(`+${formatDuration(ts - syncSession.publishAt)} from publish`);
+          if (syncSession.signedAt) parts.push(`+${formatDuration(ts - syncSession.signedAt)} from sign`);
+          if (parts.length) delta = ` <span class="delta">${parts.join(", ")}</span>`;
+        }
+        return `<div class="row"><span>${label}</span><span>${formatLogClock(ts)}${delta}</span></div>`;
+      }).join("");
+    } else {
+      currentEl.hidden = true;
+    }
+
+    if (!entries.length) {
+      listEl.innerHTML = '<li class="when">Publish a schedule to start timing.</li>';
+      return;
+    }
+
+    listEl.innerHTML = entries.map(e => {
+      const range = formatEventRange(e.open, e.close);
+      const parts = [`<strong>${range || "Schedule"}</strong>`];
+      parts.push(`publish ${formatLogClock(e.publishAt)}`);
+      if (e.signedAt) parts.push(`sign +${formatDuration(e.signedAt - e.publishAt)}`);
+      if (e.stepperAt) parts.push(`stepper +${formatDuration(e.stepperAt - e.publishAt)}`);
+      return `<li>${parts.join(" · ")}</li>`;
+    }).join("");
+  }
+
+  function beginSyncSession(expected) {
+    syncSession = {
+      publishAt: Date.now(),
+      signedAt: null,
+      stepperAt: null,
+      open: expected.open,
+      close: expected.close,
+    };
+    wasStepperSynced = false;
+    logSyncEvent("Published", syncSession.publishAt, formatEventRange(expected.open, expected.close));
+    renderSyncLog();
+  }
+
+  function markScheduleSigned() {
+    if (!syncSession || syncSession.signedAt) return;
+    syncSession.signedAt = Date.now();
+    logSyncEvent("Signed", syncSession.signedAt, `+${formatDuration(syncSession.signedAt - syncSession.publishAt)} after publish`);
+    renderSyncLog();
+  }
+
+  function finalizeSyncSession(stepperTs) {
+    if (!syncSession) return;
+    syncSession.stepperAt = stepperTs || Date.now();
+    logSyncEvent("Stepper synced", syncSession.stepperAt,
+      `+${formatDuration(syncSession.stepperAt - syncSession.publishAt)} after publish`);
+    const entries = loadSyncLog();
+    entries.unshift({ ...syncSession });
+    saveSyncLog(entries);
+    syncSession = null;
+    renderSyncLog();
+  }
+
+  async function forceSiteRefresh() {
+    document.querySelectorAll(".status-bar").forEach(el => el.classList.add("sync-flash"));
+    await checkFeed({ force: true });
+    await new Promise(r => setTimeout(r, 400));
+    await checkFeed({ force: true });
+    renderLiveSchedule(liveScheduleData);
+    renderDeviceStatus();
+    renderSyncLog();
+    setTimeout(() => {
+      document.querySelectorAll(".status-bar").forEach(el => el.classList.remove("sync-flash"));
+    }, 1200);
+    document.getElementById("syncLogCard").open = true;
+    document.getElementById("deviceStatusBar").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }
 
   function githubApiHeaders(token) {
     return {
@@ -804,6 +963,7 @@
 
       if (putRes.ok) {
         const expected = { open: events[0].time, close: events[1].time };
+        beginSyncSession(expected);
         toast("Published — signing on GitHub…", 4000);
         stopDevicePoll();
         pollUntilSigned(expected);
@@ -925,7 +1085,8 @@
       await checkFeed();
       if (scheduleMatchesExpected(expected)) {
         stopSigningPoll();
-        toast("Schedule live and signed ✓");
+        markScheduleSigned();
+        toast(`Schedule live and signed ✓ (+${formatDuration(Date.now() - (syncSession?.publishAt || Date.now())})`, 5000);
         startDevicePoll();
         return;
       }
@@ -953,17 +1114,20 @@
     devicePollTimer = setInterval(checkFeed, 3000);
   }
 
-  async function checkFeed() {
+  async function checkFeed(opts = {}) {
+    const force = !!opts.force;
+    const cacheBust = force ? Date.now() : Date.now();
     const dot = document.getElementById("statusDot");
     const text = document.getElementById("statusText");
     const age = document.getElementById("statusAge");
     const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
 
     try {
+      const fetchOpts = force ? { cache: "no-store", headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } } : { cache: "no-store" };
       const [jr, sr, dr] = await Promise.all([
-        fetch(`${RAW_BASE}/schedules.json?t=${Date.now()}`, { cache: "no-store" }),
-        fetch(`${RAW_BASE}/schedules.json.sig?t=${Date.now()}`, { cache: "no-store" }),
-        fetch(`${RAW_BASE}/device_status.json?t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/schedules.json?t=${cacheBust}`, fetchOpts),
+        fetch(`${RAW_BASE}/schedules.json.sig?t=${cacheBust}`, fetchOpts),
+        fetch(`${RAW_BASE}/device_status.json?t=${cacheBust}`, fetchOpts),
       ]);
       if (!jr.ok || !sr.ok) throw new Error("not found");
       const sig = (await sr.text()).trim();
@@ -989,9 +1153,30 @@
       renderLiveSchedule(data);
       renderDeviceStatus();
 
-      const synced = scheduleAckMatches(data, deviceStatusData?.[deviceId], deviceId);
-      if (data.generated_at && !synced) startDevicePoll();
-      else if (synced) stopDevicePoll();
+      if (syncSession && !syncSession.signedAt && scheduleMatchesExpected({ open: syncSession.open, close: syncSession.close })) {
+        markScheduleSigned();
+      }
+
+      const ack = deviceStatusData?.[deviceId];
+      const synced = scheduleAckMatches(data, ack, deviceId);
+
+      if (synced && !wasStepperSynced) {
+        wasStepperSynced = true;
+        const recvTs = parseIsoSafe(ack?.received_at)?.getTime() || Date.now();
+        const publishAt = syncSession?.publishAt;
+        finalizeSyncSession(recvTs);
+        const elapsed = publishAt ? recvTs - publishAt : null;
+        toast(elapsed != null ? `Stepper synced ✓ (+${formatDuration(elapsed)} from publish)` : "Stepper synced ✓", 6000);
+        await forceSiteRefresh();
+        stopDevicePoll();
+      } else if (synced) {
+        wasStepperSynced = true;
+        stopDevicePoll();
+      } else {
+        wasStepperSynced = false;
+        if (data.generated_at) startDevicePoll();
+      }
+      renderSyncLog();
     } catch {
       liveScheduleData = null;
       deviceStatusData = null;
@@ -1045,12 +1230,16 @@
 
     document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
-    document.getElementById("statusBar").addEventListener("click", checkFeed);
-    document.getElementById("deviceStatusBar").addEventListener("click", checkFeed);
-    setInterval(checkFeed, 10000);
+    document.getElementById("deviceStatusBar").addEventListener("click", () => checkFeed({ force: true }));
+    document.getElementById("statusBar").addEventListener("click", () => checkFeed({ force: true }));
+    setInterval(() => checkFeed(), 10000);
+    renderSyncLog();
   })();
 
-  checkFeed();
+  checkFeed().then(() => {
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    wasStepperSynced = scheduleAckMatches(liveScheduleData, deviceStatusData?.[deviceId], deviceId);
+  });
 </script>
 </body>
 </html>

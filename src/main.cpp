@@ -435,6 +435,10 @@ static bool fetch_and_cache_schedule() {
   }
 
   log_line("Schedule fetched and cached");
+  Serial.print("Schedule generated_at: ");
+  Serial.println(schedule_generated_at(json));
+  Serial.print("Device fetch time: ");
+  Serial.println(iso_utc_now());
   if (!report_schedule_received(json)) {
     log_line("Status report failed — site may not show sync yet");
   }
