@@ -58,9 +58,6 @@
 #ifndef TMC_RUN_CURRENT_PERCENT
 #define TMC_RUN_CURRENT_PERCENT 80
 #endif
-#ifndef PD_MIN_VOLTS
-#define PD_MIN_VOLTS 7.0f   // minimum VBUS to attempt a motor move (need 9V+ PD charger)
-#endif
 #ifndef GITHUB_STATUS_TOKEN
 #define GITHUB_STATUS_TOKEN ""
 #endif
@@ -69,9 +66,6 @@
 #endif
 #ifndef DEVICE_STATUS_PATH
 #define DEVICE_STATUS_PATH "schedules/device_status.json"
-#endif
-#ifndef SCHEDULE_POLL_SEC
-#define SCHEDULE_POLL_SEC 300  // recheck GitHub for schedule changes while waiting
 #endif
 
 static TMC2209 stepper_driver;
@@ -387,6 +381,12 @@ static bool report_schedule_received(const String& schedule_json) {
   return true;
 }
 
+static String schedule_generated_at(const String& json) {
+  StaticJsonDocument<256> doc;
+  if (deserializeJson(doc, json)) return "";
+  return String(doc["generated_at"] | "");
+}
+
 static bool fetch_and_cache_schedule() {
   String json;
   String sig;
@@ -407,43 +407,17 @@ static bool fetch_and_cache_schedule() {
     log_line("Failed to cache schedule");
     return false;
   }
+  String new_gen = schedule_generated_at(json);
+  String prev_gen = prefs.getString("sched_gen", "");
+  if (new_gen.length() && new_gen != prev_gen) {
+    prefs.remove("last_event_id");
+    prefs.putString("sched_gen", new_gen);
+    log_line("New schedule version — reset event progress");
+  }
+
   log_line("Schedule fetched and cached");
   report_schedule_received(json);
   return true;
-}
-
-static String schedule_generated_at(const String& json) {
-  StaticJsonDocument<256> doc;
-  if (deserializeJson(doc, json)) return "";
-  return String(doc["generated_at"] | "");
-}
-
-static bool poll_github_schedule_changed() {
-  String json;
-  String sig;
-  if (!connect_wifi()) return false;
-  if (!http_get_string(SCHEDULE_URL, json) || !http_get_string(SIGNATURE_URL, sig)) {
-    disconnect_wifi();
-    return false;
-  }
-  sig.trim();
-  if (!verify_hmac(json, sig, SIGN_KEY)) {
-    disconnect_wifi();
-    return false;
-  }
-  String remote_at = schedule_generated_at(json);
-  String cached_at = schedule_generated_at(load_cached_schedule());
-  disconnect_wifi();
-  return remote_at.length() > 0 && remote_at != cached_at;
-}
-
-static void restart_for_new_schedule() {
-  log_line("New schedule on GitHub — restarting");
-  if (connect_wifi()) {
-    fetch_and_cache_schedule();
-    disconnect_wifi();
-  }
-  esp_restart();
 }
 
 static bool load_schedule_json(String& json) {
@@ -529,8 +503,6 @@ static ScheduleEvent find_next_event(const String& json) {
 // ---------------------------------------------------------------------------
 
 static void configure_pd_12v();
-static void configure_pd_9v();
-static void configure_pd_5v();
 static void led_sos();
 
 // PD-Stepper CH224K: PG active LOW = negotiated voltage matches request (motor rail on)
@@ -575,44 +547,22 @@ static float read_as5600_degrees() {
 
 static bool wait_power_good() {
   log_line("Waiting for PG (motor power)...");
+  configure_pd_12v();
+  delay(800);
   const int attempts = PG_WAIT_MS / 100;
-
-  struct PdProfile {
-    const char* label;
-    void (*configure)();
-  };
-
-  // Try common PD profiles — wall warts vary in what they offer
-  const PdProfile order[] = {
-    {"12V", configure_pd_12v},
-    {"9V", configure_pd_9v},
-    {"5V", configure_pd_5v},
-  };
-
-  for (const auto& profile : order) {
-    Serial.print("PD profile ");
-    Serial.println(profile.label);
-    profile.configure();
-    delay(1500);  // wall warts need 1–1.5s to complete PD re-negotiation after CFG change
-    for (int i = 0; i < attempts; i++) {
-      if (is_pg_good()) {
-        Serial.print("PG ready ");
-        Serial.print(profile.label);
-        Serial.print(" (");
-        Serial.print((i + 1) * 100);
-        Serial.print(" ms, VBUS ");
-        Serial.print(read_vbus_volts(), 1);
-        Serial.println(" V)");
-        return true;
-      }
-      delay(100);
+  for (int i = 0; i < attempts; i++) {
+    if (is_pg_good()) {
+      Serial.print("PG ready (");
+      Serial.print((i + 1) * 100);
+      Serial.print(" ms, VBUS ");
+      Serial.print(read_vbus_volts(), 1);
+      Serial.println(" V)");
+      return true;
     }
-    log_line("PG not good — trying next PD profile");
+    delay(100);
   }
-
-  log_line("PG never good — need USB-C PD charger + USB-C to C cable (QC not supported)");
+  log_line("PG not good — check USB-C PD charger and cable");
   log_power_state("Last check:");
-  led_sos();
   return false;
 }
 
@@ -671,18 +621,6 @@ static void configure_pd_12v() {
   digitalWrite(PIN_CFG3, HIGH);
 }
 
-static void configure_pd_9v() {
-  digitalWrite(PIN_CFG1, LOW);
-  digitalWrite(PIN_CFG2, LOW);
-  digitalWrite(PIN_CFG3, LOW);
-}
-
-static void configure_pd_5v() {
-  digitalWrite(PIN_CFG1, HIGH);
-  digitalWrite(PIN_CFG2, LOW);
-  digitalWrite(PIN_CFG3, LOW);
-}
-
 static void init_hardware() {
   early_pd_init();
   pinMode(PIN_PG, INPUT);
@@ -710,26 +648,12 @@ static void init_hardware() {
 
 static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   disconnect_wifi();
-  early_pd_init();
-  delay(1500);  // wall warts need more time for PD re-negotiation than a PC USB port
 
   if (!wait_power_good()) {
     log_line("Power not good — skipping move");
     motor_disable();
     return false;
   }
-
-  float vbus = read_vbus_volts();
-  if (vbus < PD_MIN_VOLTS) {
-    Serial.print("VBUS too low for motor (");
-    Serial.print(vbus, 1);
-    log_line("V) — need 9V+ USB-PD charger with USB-C to USB-C cable");
-    motor_disable();
-    led_sos();
-    return false;
-  }
-
-  log_power_state("Move start:");
 
   float delta = target - current_virtual_position;
   if (fabs(delta) < degrees_per_microstep) {
@@ -740,6 +664,7 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   float enc_before = read_as5600_degrees();
   int direction = delta > 0 ? 1 : -1;
   long steps_remaining = labs((long)(delta / degrees_per_microstep));
+  const bool multi_turn = fabs(delta) >= 360.0f;
   Serial.print("Steps to move: ");
   Serial.println(steps_remaining);
 
@@ -782,16 +707,17 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   }
 
   motor_disable();
-  current_virtual_position = target;
-  prefs.putFloat("virtual_pos", current_virtual_position);
 
   float enc_after = read_as5600_degrees();
   log_f("Encoder deg before: ", enc_before);
   log_f("Encoder deg after: ", enc_after);
-  if (enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
+  if (!multi_turn && enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
     log_line("Encoder did not move — treating as failure");
     return false;
   }
+
+  current_virtual_position = target;
+  prefs.putFloat("virtual_pos", current_virtual_position);
   return true;
 }
 
@@ -812,17 +738,10 @@ static void board_sleep_seconds(uint64_t seconds) {
   const uint32_t start = millis();
   const uint32_t duration_ms = (uint32_t)(seconds * 1000ULL);
   uint32_t last_blink = 0;
-  uint32_t last_poll = start;
   while (millis() - start < duration_ms) {
     if (millis() - last_blink > 30000) {
       led_blink(1, 80, 0);
       last_blink = millis();
-    }
-    if (millis() - last_poll > (uint32_t)SCHEDULE_POLL_SEC * 1000UL) {
-      last_poll = millis();
-      if (poll_github_schedule_changed()) {
-        restart_for_new_schedule();
-      }
     }
     delay(200);
   }
@@ -854,37 +773,12 @@ static void wait_until(time_t target) {
   }
 }
 
-// Negotiate PD and warn if voltage is too low for the motor.
-// Called during the early-wake window so the user has time to swap chargers.
-static bool check_pd_voltage_early() {
-  early_pd_init();
-  delay(1500);
-  if (!wait_power_good()) {
-    log_line("PD: no power good signal");
-    return false;
-  }
-  float v = read_vbus_volts();
-  if (v < PD_MIN_VOLTS) {
-    Serial.print("WARNING: VBUS only ");
-    Serial.print(v, 1);
-    log_line("V — motor needs 9V+ USB-PD charger with USB-C to USB-C cable");
-    led_sos();
-    return false;
-  }
-  Serial.print("PD voltage OK: ");
-  Serial.print(v, 1);
-  Serial.println("V");
-  return true;
-}
-
 static void sleep_until_event(time_t event_time) {
   time_t now = time(nullptr);
   int64_t wake_at = event_time - WAKE_EARLY_SEC;
   int64_t delta = wake_at - now;
   if (delta > 2) {
     board_sleep_seconds((uint64_t)delta);
-    early_pd_init();
-    delay(300);
   }
 }
 
@@ -894,7 +788,7 @@ static void sleep_until_event(time_t event_time) {
 
 void setup() {
   early_pd_init();
-  delay(2000);  // let CH224K finish PD negotiation before Wi-Fi load
+  delay(500);
 
   Serial.begin(115200);
   delay(USB_SERIAL_WAIT_MS);
@@ -943,18 +837,9 @@ void setup() {
   }
 
   ScheduleEvent next = find_next_event(schedule_json);
-  while (!next.valid) {
-    log_line("No upcoming events — checking for new schedule every 5 min");
-    board_sleep_seconds(SCHEDULE_POLL_SEC);
-    if (connect_wifi()) {
-      fetch_and_cache_schedule();
-      disconnect_wifi();
-    }
-    schedule_json = load_cached_schedule();
-    if (!schedule_json.length()) {
-      board_restart_after(3600);
-    }
-    next = find_next_event(schedule_json);
+  if (!next.valid) {
+    log_line("No upcoming events — plug in again after publishing a schedule");
+    board_restart_after(3600);
   }
 
   time_t now = time(nullptr);
@@ -971,7 +856,6 @@ void setup() {
       sync_ntp();
       disconnect_wifi();
     }
-    check_pd_voltage_early();  // warn now if charger won't support motor move
   }
 
   now = time(nullptr);

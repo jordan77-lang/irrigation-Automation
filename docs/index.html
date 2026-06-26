@@ -313,6 +313,7 @@
   let deviceStatusData = null;
   let lastSrpPreviewAt = null;
   let devicePollTimer = null;
+  let signingPollTimer = null;
 
   function githubApiHeaders(token) {
     return {
@@ -795,9 +796,9 @@
       });
 
       if (putRes.ok) {
-        toast("Published! Signing in ~1 min. Device checks every 5 min or press reset. ✓", 6000);
-        setTimeout(checkFeed, 8000);
-        startDevicePoll();
+        const expected = { open: events[0].time, close: events[1].time };
+        toast("Published — signing on GitHub…", 4000);
+        pollUntilSigned(expected);
       } else {
         const err = await putRes.json();
         toast(`GitHub: ${formatGitHubError(err, "publish")}`);
@@ -872,14 +873,61 @@
         age.textContent = ackRange ? `Device: ${ackRange}` : "";
       } else {
         text.textContent = "Stepper has older schedule";
-        age.textContent = ackRange ? `${ackRange} · reboot device to sync` : "Reboot device to sync";
+        age.textContent = ackRange ? `${ackRange} · plug in device to sync` : "Plug in device to sync";
       }
       return;
     }
 
     dot.className = "dot warn";
     text.textContent = "Waiting for stepper…";
-    age.textContent = "Plug in or reboot device on Wi‑Fi";
+    age.textContent = "Plug in device after publishing";
+  }
+
+  function stopSigningPoll() {
+    if (signingPollTimer) {
+      clearInterval(signingPollTimer);
+      signingPollTimer = null;
+    }
+  }
+
+  function scheduleMatchesExpected(expected) {
+    if (!liveScheduleData || !expected?.open || !expected?.close) return false;
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const ev = eventTimesForDevice(liveScheduleData, deviceId);
+    return ev.open === expected.open && ev.close === expected.close;
+  }
+
+  function setSigningStatus() {
+    document.getElementById("statusDot").className = "dot warn";
+    document.getElementById("statusText").textContent = "Signing schedule…";
+    document.getElementById("statusAge").textContent = "GitHub Actions";
+  }
+
+  async function pollUntilSigned(expected) {
+    stopSigningPoll();
+    setSigningStatus();
+    const deadline = Date.now() + 120000;
+    let attempts = 0;
+
+    const tick = async () => {
+      attempts += 1;
+      await checkFeed();
+      if (scheduleMatchesExpected(expected)) {
+        stopSigningPoll();
+        toast("Schedule live and signed ✓");
+        startDevicePoll();
+        return;
+      }
+      if (Date.now() >= deadline) {
+        stopSigningPoll();
+        toast("Signing slow — tap status bar to refresh", 5000);
+        return;
+      }
+      setSigningStatus();
+    };
+
+    await tick();
+    signingPollTimer = setInterval(tick, 2500);
   }
 
   function stopDevicePoll() {
@@ -891,8 +939,7 @@
 
   function startDevicePoll() {
     stopDevicePoll();
-    devicePollTimer = setInterval(checkFeed, 20000);
-    setTimeout(checkFeed, 5000);
+    devicePollTimer = setInterval(checkFeed, 10000);
   }
 
   async function checkFeed() {
@@ -988,7 +1035,7 @@
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
     document.getElementById("statusBar").addEventListener("click", checkFeed);
     document.getElementById("deviceStatusBar").addEventListener("click", checkFeed);
-    setInterval(checkFeed, 30000);
+    setInterval(checkFeed, 15000);
   })();
 
   checkFeed();
