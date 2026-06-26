@@ -4,6 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Irrigation · 245 W 9th Place</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='14' fill='%232d6a4f'/></svg>" />
   <style>
     :root {
       --bg: #f0f4f0;
@@ -462,9 +463,9 @@
 
   async function forceSiteRefresh() {
     document.querySelectorAll(".status-bar").forEach(el => el.classList.add("sync-flash"));
-    await checkFeed({ force: true });
+    await checkFeed({ skipSyncHandler: true, softFail: true });
     await new Promise(r => setTimeout(r, 400));
-    await checkFeed({ force: true });
+    await checkFeed({ skipSyncHandler: true, softFail: true });
     renderLiveSchedule(liveScheduleData);
     renderDeviceStatus();
     renderSyncLog();
@@ -1115,15 +1116,14 @@
   }
 
   async function checkFeed(opts = {}) {
-    const force = !!opts.force;
-    const cacheBust = force ? Date.now() : Date.now();
+    const cacheBust = Date.now();
     const dot = document.getElementById("statusDot");
     const text = document.getElementById("statusText");
     const age = document.getElementById("statusAge");
     const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
 
     try {
-      const fetchOpts = force ? { cache: "no-store", headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } } : { cache: "no-store" };
+      const fetchOpts = { cache: "no-store" };
       const [jr, sr, dr] = await Promise.all([
         fetch(`${RAW_BASE}/schedules.json?t=${cacheBust}`, fetchOpts),
         fetch(`${RAW_BASE}/schedules.json.sig?t=${cacheBust}`, fetchOpts),
@@ -1160,7 +1160,7 @@
       const ack = deviceStatusData?.[deviceId];
       const synced = scheduleAckMatches(data, ack, deviceId);
 
-      if (synced && !wasStepperSynced) {
+      if (synced && !wasStepperSynced && !opts.skipSyncHandler) {
         wasStepperSynced = true;
         const recvTs = parseIsoSafe(ack?.received_at)?.getTime() || Date.now();
         const publishAt = syncSession?.publishAt;
@@ -1178,6 +1178,7 @@
       }
       renderSyncLog();
     } catch {
+      if (opts.softFail) return;
       liveScheduleData = null;
       deviceStatusData = null;
       dot.className = "dot warn";
@@ -1230,8 +1231,8 @@
 
     document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
-    document.getElementById("deviceStatusBar").addEventListener("click", () => checkFeed({ force: true }));
-    document.getElementById("statusBar").addEventListener("click", () => checkFeed({ force: true }));
+    document.getElementById("deviceStatusBar").addEventListener("click", () => checkFeed({ softFail: true }));
+    document.getElementById("statusBar").addEventListener("click", () => checkFeed({ softFail: true }));
     setInterval(() => checkFeed(), 10000);
     renderSyncLog();
   })();
