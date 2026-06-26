@@ -11,6 +11,18 @@
 				"upload"
 			],
 			"isBackground": false
+		},
+		{
+			"label": "Flash ESP32 COM7",
+			"type": "shell",
+			"command": "c:\\Users\\jordan77\\Documents\\GitHub\\Irrigation\\irrigation-Automation\\.vscode\\flash-com7-task.cmd",
+			"isBackground": false
+		},
+		{
+			"label": "Flash ESP32 COM7",
+			"type": "shell",
+			"command": "c:\\Users\\jordan77\\Documents\\GitHub\\Irrigation\\irrigation-Automation\\.vscode\\flash-com7-task.cmd",
+			"isBackground": false
 		}
 	]
 }
