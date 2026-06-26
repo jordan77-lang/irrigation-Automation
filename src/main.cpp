@@ -683,6 +683,38 @@ static void init_hardware() {
   delay(500);
 }
 
+static float angular_distance_deg(float a, float b) {
+  float d = fabsf(a - b);
+  if (d > 180.0f) d = 360.0f - d;
+  return d;
+}
+
+static bool valve_encoder_looks_closed() {
+  float enc = read_as5600_degrees();
+  if (enc < 0.0f) return false;
+  float enc_closed = prefs.getFloat("enc_at_close", -1.0f);
+  if (enc_closed < 0.0f) return false;
+  return angular_distance_deg(enc, enc_closed) < 20.0f;
+}
+
+// Virtual position can say "open" after a prior run while the valve is physically closed.
+static bool reconcile_virtual_before_open(float target) {
+  if (target <= CLOSED_VIRTUAL_ANGLE + 180.0f) return false;
+
+  float enc_closed = prefs.getFloat("enc_at_close", -1.0f);
+  if (enc_closed < 0.0f) {
+    log_line("Open: no encoder baseline — moving from closed");
+    current_virtual_position = CLOSED_VIRTUAL_ANGLE;
+    return true;
+  }
+  if (valve_encoder_looks_closed()) {
+    log_line("Open: encoder looks closed — moving despite virtual position");
+    current_virtual_position = CLOSED_VIRTUAL_ANGLE;
+    return true;
+  }
+  return false;
+}
+
 static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
   disconnect_wifi();
 
@@ -694,8 +726,13 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
 
   float delta = target - current_virtual_position;
   if (fabs(delta) < degrees_per_microstep) {
-    Serial.println("Already at target — no steps needed");
-    return true;
+    if (target > CLOSED_VIRTUAL_ANGLE + 180.0f && reconcile_virtual_before_open(target)) {
+      delta = target - current_virtual_position;
+    } else {
+      Serial.println("Already at target — no steps needed");
+      led_blink(2, 250, 150);
+      return true;
+    }
   }
 
   float enc_before = read_as5600_degrees();
@@ -755,6 +792,10 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
 
   current_virtual_position = target;
   prefs.putFloat("virtual_pos", current_virtual_position);
+  if (fabs(target - CLOSED_VIRTUAL_ANGLE) < degrees_per_microstep && enc_after >= 0.0f) {
+    prefs.putFloat("enc_at_close", enc_after);
+    log_f("Saved closed encoder baseline: ", enc_after);
+  }
   return true;
 }
 
@@ -860,6 +901,8 @@ void setup() {
 
   prefs.begin(PREFS_NS, false);
   current_virtual_position = prefs.getFloat("virtual_pos", CLOSED_VIRTUAL_ANGLE);
+
+  log_f("Virtual position: ", current_virtual_position);
 
   if (!LittleFS.begin(true)) {
     log_line("LittleFS mount failed");
