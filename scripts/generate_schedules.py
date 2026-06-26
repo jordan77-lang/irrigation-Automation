@@ -10,6 +10,17 @@ from pathlib import Path
 from dateutil import tz
 
 
+def parse_iso_utc(ts):
+    if not isinstance(ts, str) or not ts:
+        raise ValueError("Event time must be a non-empty string")
+    if ts.endswith("Z"):
+        ts = ts[:-1] + "+00:00"
+    dt = datetime.datetime.fromisoformat(ts)
+    if dt.tzinfo is None:
+        raise ValueError("Event time must include timezone (use UTC Z)")
+    return dt.astimezone(tz.UTC)
+
+
 def iso(ts):
     return ts.replace(microsecond=0).astimezone(tz.UTC).isoformat().replace("+00:00", "Z")
 
@@ -19,6 +30,81 @@ def load_json(p):
     if not p.exists():
         return None
     return json.loads(p.read_text())
+
+
+def validate_and_normalize_manual(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("manual_events.json must be a JSON object")
+
+    devices = payload.get("devices")
+    if not isinstance(devices, dict) or not devices:
+        raise ValueError("manual_events.json must contain a non-empty devices object")
+
+    normalized = {"devices": {}}
+
+    for device_id, events in devices.items():
+        if not isinstance(device_id, str) or not device_id:
+            raise ValueError("Each device key must be a non-empty string")
+        if not isinstance(events, list) or not events:
+            raise ValueError(f"Device {device_id} must have a non-empty event list")
+
+        seen_ids = set()
+        parsed_events = []
+        for i, evt in enumerate(events):
+            if not isinstance(evt, dict):
+                raise ValueError(f"Device {device_id} event #{i+1} must be an object")
+
+            eid = evt.get("id")
+            action = evt.get("action")
+            when = evt.get("time")
+            angle = evt.get("virtual_angle")
+            dur = evt.get("expected_duration_s", 60)
+
+            if not isinstance(eid, str) or not eid:
+                raise ValueError(f"Device {device_id} event #{i+1} missing id")
+            if eid in seen_ids:
+                raise ValueError(f"Device {device_id} has duplicate event id: {eid}")
+            seen_ids.add(eid)
+
+            if action not in ("open", "close"):
+                raise ValueError(f"Device {device_id} event {eid} has invalid action: {action}")
+
+            dt = parse_iso_utc(when)
+
+            try:
+                angle_f = float(angle)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Device {device_id} event {eid} has invalid virtual_angle") from exc
+
+            try:
+                dur_i = int(dur)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"Device {device_id} event {eid} has invalid expected_duration_s") from exc
+            if dur_i <= 0:
+                raise ValueError(f"Device {device_id} event {eid} expected_duration_s must be > 0")
+
+            parsed_events.append(
+                {
+                    "id": eid,
+                    "action": action,
+                    "time": iso(dt),
+                    "virtual_angle": angle_f,
+                    "expected_duration_s": dur_i,
+                    "_dt": dt,
+                }
+            )
+
+        parsed_events.sort(key=lambda e: e["_dt"])
+        last_dt = None
+        for evt in parsed_events:
+            if last_dt and evt["_dt"] <= last_dt:
+                raise ValueError(f"Device {device_id} has non-increasing event times")
+            last_dt = evt["_dt"]
+            evt.pop("_dt", None)
+
+        normalized["devices"][device_id] = parsed_events
+
+    return normalized
 
 
 def generate_for_device(dev, days_ahead=90):
@@ -80,7 +166,7 @@ def main():
 
     manual = load_json("schedules/manual_events.json")
     if manual:
-        payload = manual
+        payload = validate_and_normalize_manual(manual)
         payload["generated_from"] = "manual_events.json"
         payload["generated_at"] = iso(datetime.datetime.utcnow().replace(tzinfo=tz.UTC))
         Path(args.out).parent.mkdir(parents=True, exist_ok=True)

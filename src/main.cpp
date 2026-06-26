@@ -37,10 +37,37 @@
 #define PIN_LED1 10
 #endif
 #ifndef USE_LIGHT_SLEEP
-#define USE_LIGHT_SLEEP 1
+#define USE_LIGHT_SLEEP 0
 #endif
 #ifndef USE_AWAKE_WAIT
-#define USE_AWAKE_WAIT 1  // stay awake between events — wall warts shut off during sleep
+#define USE_AWAKE_WAIT 0
+#endif
+#ifndef POWER_PROFILE
+#if USE_AWAKE_WAIT
+#define POWER_PROFILE 2
+#elif USE_LIGHT_SLEEP
+#define POWER_PROFILE 1
+#else
+#define POWER_PROFILE 0
+#endif
+#endif
+#ifndef STEP_DELAY_START_US
+#define STEP_DELAY_START_US 320
+#endif
+#ifndef STEP_DELAY_MIN_US
+#define STEP_DELAY_MIN_US 150
+#endif
+#ifndef STEP_ACCEL_STEPS
+#define STEP_ACCEL_STEPS 1200
+#endif
+#ifndef MOTION_RETRY_COUNT
+#define MOTION_RETRY_COUNT 1
+#endif
+#ifndef ENABLE_DIAG_FAULT_CHECK
+#define ENABLE_DIAG_FAULT_CHECK 1
+#endif
+#ifndef DIAG_ACTIVE_STATE
+#define DIAG_ACTIVE_STATE HIGH
 #endif
 #ifndef USB_SERIAL_WAIT_MS
 #define USB_SERIAL_WAIT_MS 500
@@ -282,6 +309,24 @@ static String base64_encode_str(const String& in) {
   return out;
 }
 
+static String base64_decode_str(const String& in) {
+  size_t olen = 0;
+  const unsigned char* src = reinterpret_cast<const unsigned char*>(in.c_str());
+  size_t slen = in.length();
+  if (mbedtls_base64_decode(nullptr, 0, &olen, src, slen) != 0 || olen == 0) {
+    return "";
+  }
+  unsigned char* buf = (unsigned char*)malloc(olen + 1);
+  if (!buf) return "";
+  if (mbedtls_base64_decode(buf, olen, &olen, src, slen) != 0) {
+    free(buf);
+    return "";
+  }
+  String out(reinterpret_cast<char*>(buf), olen);
+  free(buf);
+  return out;
+}
+
 static bool status_report_enabled() {
   return GITHUB_STATUS_TOKEN[0] != '\0';
 }
@@ -289,7 +334,7 @@ static bool status_report_enabled() {
 static bool report_schedule_received(const String& schedule_json) {
   if (!status_report_enabled()) return false;
 
-  StaticJsonDocument<8192> sched;
+  DynamicJsonDocument sched(max((size_t)4096, schedule_json.length() + 2048));
   if (deserializeJson(sched, schedule_json)) {
     log_line("Status report: schedule JSON parse failed");
     return false;
@@ -318,12 +363,8 @@ static bool report_schedule_received(const String& schedule_json) {
   }
 
   String received_at = iso_utc_now();
-  String status_json = String("{\"") + DEVICE_ID + "\":{"
-    + "\"schedule_generated_at\":\"" + generated_at + "\","
-    + "\"received_at\":\"" + received_at + "\","
-    + "\"open_time\":\"" + open_time + "\","
-    + "\"close_time\":\"" + close_time + "\""
-    + "}}";
+  DynamicJsonDocument status_doc(4096);
+  deserializeJson(status_doc, "{}");
 
   String api_url = String("https://api.github.com/repos/") + GITHUB_REPO + "/contents/" + DEVICE_STATUS_PATH;
   String sha;
@@ -337,11 +378,35 @@ static bool report_schedule_received(const String& schedule_json) {
     int code = http.GET();
     if (code == 200) {
       String body = http.getString();
-      StaticJsonDocument<512> doc;
-      if (!deserializeJson(doc, body)) sha = doc["sha"] | "";
+      DynamicJsonDocument doc(4096);
+      if (!deserializeJson(doc, body)) {
+        sha = doc["sha"] | "";
+        String content_b64 = doc["content"] | "";
+        content_b64.replace("\n", "");
+        String existing = base64_decode_str(content_b64);
+        if (existing.length()) {
+          DynamicJsonDocument existing_doc(4096);
+          if (!deserializeJson(existing_doc, existing)) {
+            status_doc = existing_doc;
+          }
+        }
+      }
     }
     http.end();
   }
+
+  JsonObject root = status_doc.as<JsonObject>();
+  if (root.isNull()) root = status_doc.to<JsonObject>();
+  JsonObject dev = root[DEVICE_ID].is<JsonObject>()
+      ? root[DEVICE_ID].as<JsonObject>()
+      : root.createNestedObject(DEVICE_ID);
+  dev["schedule_generated_at"] = generated_at;
+  dev["received_at"] = received_at;
+  dev["open_time"] = open_time;
+  dev["close_time"] = close_time;
+
+  String status_json;
+  serializeJson(status_doc, status_json);
 
   String b64 = base64_encode_str(status_json);
   if (!b64.length()) {
@@ -490,7 +555,7 @@ static void mark_event_done(const String& id) {
 
 static ScheduleEvent find_next_event(const String& json) {
   ScheduleEvent best;
-  StaticJsonDocument<8192> doc;
+  DynamicJsonDocument doc(max((size_t)4096, json.length() + 2048));
   DeserializationError err = deserializeJson(doc, json);
   if (err) {
     log_line("JSON parse error");
@@ -504,7 +569,6 @@ static ScheduleEvent find_next_event(const String& json) {
   }
 
   time_t now = time(nullptr);
-  time_t horizon = now + (7 * 24 * 3600);
 
   for (JsonObject evt : events) {
     String id = evt["id"] | "";
@@ -528,8 +592,6 @@ static ScheduleEvent find_next_event(const String& json) {
       best.virtual_angle = evt["virtual_angle"] | CLOSED_VIRTUAL_ANGLE;
       best.expected_duration_s = evt["expected_duration_s"] | 60;
     }
-
-    if (ts > horizon) break;
   }
 
   return best;
@@ -730,72 +792,129 @@ static bool move_to_virtual_angle(float target, uint32_t timeout_ms) {
       delta = target - current_virtual_position;
     } else {
       Serial.println("Already at target — no steps needed");
-      led_blink(2, 250, 150);
+      led_blink(1, 400, 0);
       return true;
     }
   }
 
   float enc_before = read_as5600_degrees();
   int direction = delta > 0 ? 1 : -1;
-  long steps_remaining = labs((long)(delta / degrees_per_microstep));
+  const long total_steps = labs((long)(delta / degrees_per_microstep));
+  if (total_steps <= 0) {
+    log_line("No move steps after quantization");
+    return true;
+  }
   const bool multi_turn = fabs(delta) >= 360.0f;
   Serial.print("Steps to move: ");
-  Serial.println(steps_remaining);
+  Serial.println(total_steps);
 
-  // Re-apply TMC settings in case a power glitch reset the driver over UART
-  stepper_driver.setRunCurrent(TMC_RUN_CURRENT_PERCENT);
-  stepper_driver.setMicrostepsPerStep(MICROSTEPS);
-  stepper_driver.enableAutomaticCurrentScaling();
-  stepper_driver.enableStealthChop();
+  for (int attempt = 0; attempt <= MOTION_RETRY_COUNT; attempt++) {
+    // Re-apply TMC settings in case a power glitch reset the driver over UART
+    stepper_driver.setRunCurrent(TMC_RUN_CURRENT_PERCENT);
+    stepper_driver.setMicrostepsPerStep(MICROSTEPS);
+    stepper_driver.enableAutomaticCurrentScaling();
+    stepper_driver.enableStealthChop();
 
-  digitalWrite(PIN_DIR, direction > 0 ? HIGH : LOW);
-  motor_enable();
-  if (stepper_driver.hardwareDisabled()) {
-    log_line("TMC2209 still disabled after enable");
+    digitalWrite(PIN_DIR, direction > 0 ? HIGH : LOW);
+    motor_enable();
+    if (stepper_driver.hardwareDisabled()) {
+      log_line("TMC2209 still disabled after enable");
+      motor_disable();
+      return false;
+    }
+
+    uint32_t start = millis();
+    long steps_remaining = total_steps;
+    long steps_moved = 0;
+    bool fail_timeout = false;
+    bool fail_pg = false;
+    bool fail_diag = false;
+    int diag_hits = 0;
+
+    uint32_t start_delay_us = STEP_DELAY_START_US + (uint32_t)(attempt * 80);
+    uint32_t min_delay_us = STEP_DELAY_MIN_US + (uint32_t)(attempt * 30);
+    if (start_delay_us < min_delay_us) start_delay_us = min_delay_us;
+    long accel_steps = STEP_ACCEL_STEPS;
+    if (accel_steps < 1) accel_steps = 1;
+
+    while (steps_remaining > 0) {
+      if (millis() - start > timeout_ms) {
+        fail_timeout = true;
+        break;
+      }
+      if (!is_pg_good()) {
+        fail_pg = true;
+        break;
+      }
+
+#if ENABLE_DIAG_FAULT_CHECK
+      if (steps_moved > 200) {
+        if (digitalRead(PIN_DIAG) == DIAG_ACTIVE_STATE) diag_hits++;
+        else diag_hits = 0;
+        if (diag_hits >= 3) {
+          fail_diag = true;
+          break;
+        }
+      }
+#endif
+
+      long edge_steps = steps_moved < (total_steps - steps_moved)
+          ? steps_moved
+          : (total_steps - steps_moved);
+      if (edge_steps > accel_steps) edge_steps = accel_steps;
+      uint32_t step_delay_us = start_delay_us;
+      if (edge_steps > 0 && start_delay_us > min_delay_us) {
+        step_delay_us = start_delay_us - (uint32_t)((start_delay_us - min_delay_us) * edge_steps / accel_steps);
+      }
+
+      digitalWrite(PIN_STEP, HIGH);
+      delayMicroseconds(step_delay_us);
+      digitalWrite(PIN_STEP, LOW);
+      delayMicroseconds(step_delay_us);
+      steps_remaining--;
+      steps_moved++;
+    }
+
     motor_disable();
-    return false;
-  }
 
-  uint32_t start = millis();
-  const uint32_t step_delay_us = 150;  // 150µs half-period = ~3.3 kHz, matches Josh's fast examples
-
-  while (steps_remaining > 0) {
-    if (millis() - start > timeout_ms) {
-      log_line("Move timeout");
-      motor_disable();
-      led_sos();
-      return false;
+    if (!fail_timeout && !fail_pg && !fail_diag) {
+      float enc_after = read_as5600_degrees();
+      log_f("Encoder deg before: ", enc_before);
+      log_f("Encoder deg after: ", enc_after);
+      if (!multi_turn && enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
+        log_line("Encoder did not move — treating as failure");
+      } else {
+        current_virtual_position = target;
+        prefs.putFloat("virtual_pos", current_virtual_position);
+        if (fabs(target - CLOSED_VIRTUAL_ANGLE) < degrees_per_microstep && enc_after >= 0.0f) {
+          prefs.putFloat("enc_at_close", enc_after);
+          log_f("Saved closed encoder baseline: ", enc_after);
+        }
+        return true;
+      }
+    } else {
+      if (fail_timeout) log_line("Move timeout");
+      if (fail_pg) {
+        log_line("PG lost during move");
+        log_power_state("PG lost:");
+      }
+      if (fail_diag) log_line("DIAG fault asserted during move");
     }
-    if (!is_pg_good()) {
-      log_line("PG lost during move");
-      log_power_state("PG lost:");
-      motor_disable();
-      led_sos();
-      return false;
+
+    if (attempt < MOTION_RETRY_COUNT) {
+      Serial.print("Move retry ");
+      Serial.print(attempt + 1);
+      Serial.println(" with slower ramp");
+      delay(300);
+      if (!wait_power_good()) {
+        log_line("Power not good before retry");
+        break;
+      }
+      continue;
     }
-    digitalWrite(PIN_STEP, HIGH);
-    delayMicroseconds(step_delay_us);
-    digitalWrite(PIN_STEP, LOW);
-    delayMicroseconds(step_delay_us);
-    steps_remaining--;
   }
 
-  motor_disable();
-
-  float enc_after = read_as5600_degrees();
-  log_f("Encoder deg before: ", enc_before);
-  log_f("Encoder deg after: ", enc_after);
-  if (!multi_turn && enc_before >= 0.0f && enc_after >= 0.0f && fabs(enc_after - enc_before) < 1.0f) {
-    log_line("Encoder did not move — treating as failure");
-    return false;
-  }
-
-  current_virtual_position = target;
-  prefs.putFloat("virtual_pos", current_virtual_position);
-  if (fabs(target - CLOSED_VIRTUAL_ANGLE) < degrees_per_microstep && enc_after >= 0.0f) {
-    prefs.putFloat("enc_at_close", enc_after);
-    log_f("Saved closed encoder baseline: ", enc_after);
-  }
+  led_sos();
   return true;
 }
 
@@ -810,34 +929,34 @@ static void board_sleep_seconds(uint64_t seconds) {
   Serial.flush();
   disconnect_wifi();
 
-#if USE_AWAKE_WAIT
-  Serial.println(" s (awake — wall wart safe)");
-  Serial.flush();
-  const uint32_t start = millis();
-  const uint32_t duration_ms = (uint32_t)(seconds * 1000ULL);
-  uint32_t last_blink = 0;
-  while (millis() - start < duration_ms) {
-    if (millis() - last_blink > 30000) {
-      led_blink(1, 80, 0);
-      last_blink = millis();
+  if (POWER_PROFILE == 2) {
+    Serial.println(" s (awake profile)");
+    Serial.flush();
+    const uint32_t start = millis();
+    const uint32_t duration_ms = (uint32_t)(seconds * 1000ULL);
+    uint32_t last_blink = 0;
+    while (millis() - start < duration_ms) {
+      if (millis() - last_blink > 30000) {
+        led_blink(1, 80, 0);
+        last_blink = millis();
+      }
+      delay(200);
     }
-    delay(200);
+    return;
   }
-#else
-#if USE_LIGHT_SLEEP
-  Serial.println(" s (light sleep)");
-#else
-  Serial.println(" s (deep sleep)");
-#endif
+
+  if (POWER_PROFILE == 1) {
+    Serial.println(" s (light sleep profile)");
+    Serial.flush();
+    esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
+    esp_light_sleep_start();
+    return;
+  }
+
+  Serial.println(" s (deep sleep profile)");
   Serial.flush();
-#if USE_LIGHT_SLEEP
-  esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
-  esp_light_sleep_start();
-#else
   esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
   esp_deep_sleep_start();
-#endif
-#endif
 }
 
 static bool wait_for_upcoming_events(String& schedule_json, ScheduleEvent& next) {

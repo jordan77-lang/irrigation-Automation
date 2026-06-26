@@ -301,7 +301,7 @@
 
   <div class="card">
     <div class="card-title">On device</div>
-    <p class="card-hint">Signed schedule your valve will run.</p>
+    <p class="card-hint">Published schedule plus signature file. Device verifies HMAC before running.</p>
     <ul class="schedule-list" id="liveSchedule">
       <li class="empty-sched">Loading…</li>
     </ul>
@@ -313,7 +313,7 @@
       <label for="ghToken">GitHub token</label>
       <input id="ghToken" type="password" placeholder="ghp_… or github_pat_…" autocomplete="off" />
       <p class="settings-hint">
-        Stored in this browser only.
+        Stored only for this tab session.
         <a href="https://github.com/settings/tokens/new?scopes=repo,workflow&description=Irrigation" target="_blank" rel="noopener">Classic token</a>
         needs <code>repo</code> + <code>workflow</code>.
         Fine-grained needs Contents + Actions write on this repo.
@@ -340,6 +340,7 @@
   const DRAFT_KEY    = "irr_draft_v5";
   const SETTINGS_KEY = "irr_settings_v2";
   const SYNC_LOG_KEY = "irr_sync_log_v1";
+  const TOKEN_SESSION_KEY = "irr_gh_token_session_v1";
   const REPO         = "jordan77-lang/irrigation-Automation";
   const FILE_PATH    = "schedules/manual_events.json";
   const RAW_BASE     = `https://raw.githubusercontent.com/${REPO}/main/schedules`;
@@ -640,7 +641,7 @@
   }
 
   async function dispatchSrpWorkflow() {
-    const token = document.getElementById("ghToken").value.trim();
+    const token = readGitHubToken();
     if (!token) throw new Error("Enter a GitHub token in Settings.");
 
     const res = await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/srp_pull.yml/dispatches`, {
@@ -806,6 +807,19 @@
     try { return JSON.parse(localStorage.getItem(SETTINGS_KEY)) || {}; } catch { return {}; }
   }
   function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+  function readGitHubToken() {
+    const input = document.getElementById("ghToken").value.trim();
+    if (input) {
+      sessionStorage.setItem(TOKEN_SESSION_KEY, input);
+      return input;
+    }
+    const sessionToken = sessionStorage.getItem(TOKEN_SESSION_KEY) || "";
+    if (sessionToken) {
+      document.getElementById("ghToken").value = sessionToken;
+    }
+    return sessionToken;
+  }
 
   function defaultDraft() {
     const now = new Date();
@@ -977,7 +991,7 @@
   async function publishToGitHub() {
     if (!validateTimes()) { toast("Fix the times — close must be after open."); return; }
 
-    const token = document.getElementById("ghToken").value.trim();
+    const token = readGitHubToken();
     if (!token) { toast("Enter a GitHub token in Settings."); return; }
 
     const btn = document.getElementById("publishBtn");
@@ -1114,7 +1128,7 @@
 
   function setSigningStatus() {
     document.getElementById("statusDot").className = "dot warn";
-    document.getElementById("statusText").textContent = "Signing schedule…";
+    document.getElementById("statusText").textContent = "Waiting for signature publish…";
     document.getElementById("statusAge").textContent = "GitHub Actions";
   }
 
@@ -1130,7 +1144,7 @@
       if (scheduleMatchesExpected(expected)) {
         stopSigningPoll();
         markScheduleSigned();
-        toast(`Schedule live and signed ✓ (+${formatDuration(Date.now() - (syncSession?.publishAt || Date.now()))})`, 5000);
+        toast(`Schedule published and signature file updated (+${formatDuration(Date.now() - (syncSession?.publishAt || Date.now()))})`, 5000);
         startDevicePoll();
         return;
       }
@@ -1185,7 +1199,7 @@
       }
 
       dot.className = "dot ok";
-      text.textContent = "Schedule live and signed";
+      text.textContent = "Schedule published; signature file present";
 
       if (data.generated_at) {
         const ev = eventTimesForDevice(data, deviceId);
@@ -1239,7 +1253,7 @@
       liveScheduleData = null;
       deviceStatusData = null;
       dot.className = "dot warn";
-      text.textContent = "No signed schedule yet";
+      text.textContent = "No published signed feed yet";
       age.textContent = "";
       document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">Nothing on GitHub yet.</li>';
       renderDeviceStatus();
@@ -1272,9 +1286,9 @@
     const s = loadSettings();
     if (s.deviceId)  document.getElementById("deviceId").value  = s.deviceId;
     if (s.openTurns) document.getElementById("openTurns").value = s.openTurns;
-    if (s.ghToken)   document.getElementById("ghToken").value   = s.ghToken;
+    document.getElementById("ghToken").value = sessionStorage.getItem(TOKEN_SESSION_KEY) || "";
 
-    ["deviceId", "openTurns", "ghToken"].forEach(id => {
+    ["deviceId", "openTurns"].forEach(id => {
       document.getElementById(id).addEventListener("change", () => {
         const st = loadSettings();
         st[id] = document.getElementById(id).value;
@@ -1284,6 +1298,12 @@
           renderDeviceStatus();
         }
       });
+    });
+
+    document.getElementById("ghToken").addEventListener("input", () => {
+      const token = document.getElementById("ghToken").value.trim();
+      if (token) sessionStorage.setItem(TOKEN_SESSION_KEY, token);
+      else sessionStorage.removeItem(TOKEN_SESSION_KEY);
     });
 
     document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);

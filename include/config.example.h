@@ -62,8 +62,21 @@
 #define WIFI_CONNECT_TIMEOUT_MS 20000
 #define PG_WAIT_MS 10000          // wait up to 10s for PD power-good before moving
 #define REFRESH_SCHEDULE_EVERY_WAKE 1
-// 1 = stay awake between events (required for most USB wall warts)
-#define USE_AWAKE_WAIT 1
-// 1 = light sleep; 0 = deep sleep — only used when USE_AWAKE_WAIT is 0
-#define USE_LIGHT_SLEEP 1
+// Power profile:
+// 0 = battery profile (deep sleep, lowest power)
+// 1 = light sleep profile
+// 2 = wall-power profile (stay awake between events)
+#define POWER_PROFILE 0
+
+// Motor motion profile tuning
+// Higher values are slower but more tolerant to load/stall.
+#define STEP_DELAY_START_US 320
+#define STEP_DELAY_MIN_US 150
+#define STEP_ACCEL_STEPS 1200
+#define MOTION_RETRY_COUNT 1
+
+// DIAG fault handling (set DIAG_ACTIVE_STATE to LOW if your board wiring is inverted)
+#define ENABLE_DIAG_FAULT_CHECK 1
+#define DIAG_ACTIVE_STATE HIGH
+
 #define USB_SERIAL_WAIT_MS 500
