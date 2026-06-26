@@ -517,16 +517,45 @@
   }
 
   function parseTimeInput(inputVal, ampm) {
-    const s = (inputVal || "").trim();
+    let s = (inputVal || "").trim().replace(/\s+/g, "");
     if (!s) return null;
-    const m = s.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
-    if (!m) return null;
-    let h = parseInt(m[1], 10);
-    const min = m[2] !== undefined ? parseInt(m[2], 10) : 0;
+
+    let h, min;
+    if (/^\d{1,2}[:.]\d{1,2}$/.test(s)) {
+      const parts = s.split(/[:.]/);
+      h = parseInt(parts[0], 10);
+      min = parseInt(parts[1], 10);
+    } else if (/^\d{3,4}$/.test(s)) {
+      if (s.length === 3) {
+        h = parseInt(s[0], 10);
+        min = parseInt(s.slice(1), 10);
+      } else {
+        h = parseInt(s.slice(0, 2), 10);
+        min = parseInt(s.slice(2), 10);
+      }
+    } else if (/^\d{1,2}$/.test(s)) {
+      h = parseInt(s, 10);
+      min = 0;
+    } else {
+      return null;
+    }
+
     if (h < 1 || h > 12 || min < 0 || min > 59) return null;
     if (ampm === "PM" && h !== 12) h += 12;
     if (ampm === "AM" && h === 12) h = 0;
     return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  function normalizeTimeInput(inputEl) {
+    const ampm = inputEl.id.startsWith("open")
+      ? document.getElementById("openAmPm").value
+      : document.getElementById("closeAmPm").value;
+    const hhmm = parseTimeInput(inputEl.value, ampm);
+    if (hhmm) {
+      const display = hhmmToDisplay(hhmm);
+      inputEl.value = display.input;
+      inputEl.classList.remove("invalid");
+    }
   }
 
   function setTimeFields(prefix, hhmm) {
@@ -781,11 +810,18 @@
     }
   }
 
+  function parseIsoSafe(iso) {
+    if (!iso) return null;
+    const s = /[Zz]|[+-]\d{2}:\d{2}$/.test(iso) ? iso : `${iso}Z`;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+
   function formatEventRange(openIso, closeIso) {
-    if (!openIso || !closeIso) return "";
-    const o = new Date(openIso);
-    const c = new Date(closeIso);
-    const fmt = d => d.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+    const o = parseIsoSafe(openIso);
+    const c = parseIsoSafe(closeIso);
+    if (!o || !c) return "";
+    const fmt = d => d.toLocaleString([], { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
     return `${fmt(o)} → ${fmt(c)}`;
   }
 
@@ -823,8 +859,7 @@
       dot.className = "dot ok";
       text.textContent = "On stepper ✓";
       age.textContent = formatEventRange(ack.open_time, ack.close_time)
-        || (ack.received_at ? `Received ${new Date(ack.received_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}` : "");
-      stopDevicePoll();
+        || (ack.received_at ? `Received ${formatEventRange(ack.open_time, ack.close_time) || new Date(parseIsoSafe(ack.received_at)).toLocaleString([], { weekday:"short", month:"short", day:"numeric", hour:"numeric", minute:"2-digit" })}` : "");
       return;
     }
 
@@ -868,9 +903,9 @@
 
     try {
       const [jr, sr, dr] = await Promise.all([
-        fetch(`${RAW_BASE}/schedules.json`, { cache: "no-store" }),
-        fetch(`${RAW_BASE}/schedules.json.sig`, { cache: "no-store" }),
-        fetch(`${RAW_BASE}/device_status.json`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/schedules.json?t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/schedules.json.sig?t=${Date.now()}`, { cache: "no-store" }),
+        fetch(`${RAW_BASE}/device_status.json?t=${Date.now()}`, { cache: "no-store" }),
       ]);
       if (!jr.ok || !sr.ok) throw new Error("not found");
       const sig = (await sr.text()).trim();
@@ -916,8 +951,10 @@
     document.getElementById("irrDate").addEventListener("change", updatePreview);
 
     ["open", "close"].forEach(prefix => {
-      document.getElementById(`${prefix}TimeInput`).addEventListener("input", updatePreview);
-      document.getElementById(`${prefix}TimeInput`).addEventListener("change", updatePreview);
+      const inputEl = document.getElementById(`${prefix}TimeInput`);
+      inputEl.addEventListener("input", updatePreview);
+      inputEl.addEventListener("change", () => { normalizeTimeInput(inputEl); updatePreview(); });
+      inputEl.addEventListener("blur", () => { normalizeTimeInput(inputEl); updatePreview(); });
       document.getElementById(`${prefix}AmPm`).addEventListener("change", updatePreview);
     });
 
@@ -950,6 +987,8 @@
     document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
     document.getElementById("statusBar").addEventListener("click", checkFeed);
+    document.getElementById("deviceStatusBar").addEventListener("click", checkFeed);
+    setInterval(checkFeed, 30000);
   })();
 
   checkFeed();
