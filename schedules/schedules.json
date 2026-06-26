@@ -1,18 +1,18 @@
 {
-  "generated_at": "2026-06-26T15:27:01Z",
+  "generated_at": "2026-06-26T15:37:12Z",
   "devices": {
     "pd01": [
       {
-        "id": "pd01-20260626T153000-open",
+        "id": "pd01-20260626T153800-open",
         "action": "open",
-        "time": "2026-06-26T15:30:00Z",
+        "time": "2026-06-26T15:38:00Z",
         "virtual_angle": 1440,
         "expected_duration_s": 300
       },
       {
-        "id": "pd01-20260626T153000-close",
+        "id": "pd01-20260626T153800-close",
         "action": "close",
-        "time": "2026-06-26T15:45:00Z",
+        "time": "2026-06-26T15:41:00Z",
         "virtual_angle": 0,
         "expected_duration_s": 60
       }
