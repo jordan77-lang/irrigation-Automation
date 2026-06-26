@@ -75,6 +75,14 @@
     .row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
     @media (max-width: 480px) { .row { grid-template-columns: 1fr; } }
 
+    .time-row {
+      display: grid; grid-template-columns: 1fr auto; gap: 0.45rem;
+      align-items: start; margin-bottom: 0.75rem;
+    }
+    .time-row input { margin-bottom: 0; }
+    .time-row select { margin-bottom: 0; width: 5.5rem; min-width: 5.5rem; }
+    .time-row input.invalid { border-color: var(--danger); }
+
     .chip-row { display: flex; gap: 0.4rem; margin-bottom: 0.75rem; }
     .chip {
       padding: 0.3rem 0.7rem; border-radius: 999px; border: 1.5px solid var(--border);
@@ -221,12 +229,24 @@
 
     <div class="row">
       <div>
-        <label for="openTime">Open valve</label>
-        <select id="openTime"></select>
+        <label for="openTimeInput">Open valve</label>
+        <div class="time-row">
+          <input type="text" id="openTimeInput" placeholder="10:30" inputmode="decimal" autocomplete="off" />
+          <select id="openAmPm" aria-label="Open AM or PM">
+            <option value="AM">AM</option>
+            <option value="PM">PM</option>
+          </select>
+        </div>
       </div>
       <div>
-        <label for="closeTime">Close valve</label>
-        <select id="closeTime"></select>
+        <label for="closeTimeInput">Close valve</label>
+        <div class="time-row">
+          <input type="text" id="closeTimeInput" placeholder="2:15" inputmode="decimal" autocomplete="off" />
+          <select id="closeAmPm" aria-label="Close AM or PM">
+            <option value="AM">AM</option>
+            <option value="PM">PM</option>
+          </select>
+        </div>
       </div>
     </div>
 
@@ -276,7 +296,7 @@
 <div id="toast"></div>
 
 <script>
-  const DRAFT_KEY    = "irr_draft_v4";
+  const DRAFT_KEY    = "irr_draft_v5";
   const SETTINGS_KEY = "irr_settings_v2";
   const REPO         = "jordan77-lang/irrigation-Automation";
   const FILE_PATH    = "schedules/manual_events.json";
@@ -314,15 +334,15 @@
     return msg;
   }
 
-  function roundToQuarterHour(date) {
+  function roundToMinute(date) {
     const d = new Date(date);
-    d.setMinutes(Math.round(d.getMinutes() / 15) * 15, 0, 0);
+    d.setSeconds(0, 0);
     return d;
   }
 
   function srpLocalToDraft(onDateTime, offDateTime) {
-    const open = roundToQuarterHour(new Date(`${onDateTime}${ARIZONA_OFFSET}`));
-    const close = roundToQuarterHour(new Date(`${offDateTime}${ARIZONA_OFFSET}`));
+    const open = roundToMinute(new Date(`${onDateTime}${ARIZONA_OFFSET}`));
+    const close = roundToMinute(new Date(`${offDateTime}${ARIZONA_OFFSET}`));
     return {
       date: toDateInputValue(open),
       openTime: `${String(open.getHours()).padStart(2, "0")}:${String(open.getMinutes()).padStart(2, "0")}`,
@@ -349,8 +369,8 @@
       return;
     }
     if (entry.openDate && entry.closeDate) {
-      const o = roundToQuarterHour(entry.openDate);
-      const c = roundToQuarterHour(entry.closeDate);
+      const o = roundToMinute(entry.openDate);
+      const c = roundToMinute(entry.closeDate);
       applyDraft({
         date: toDateInputValue(o),
         openTime: `${String(o.getHours()).padStart(2, "0")}:${String(o.getMinutes()).padStart(2, "0")}`,
@@ -488,18 +508,40 @@
     }
   }
 
-  function buildTimeOptions(selectEl, selected) {
-    selectEl.innerHTML = "";
-    for (let h = 0; h < 24; h++) {
-      for (let m = 0; m < 60; m += 15) {
-        const val = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
-        const opt = document.createElement("option");
-        opt.value = val;
-        opt.textContent = formatTime12(val);
-        if (val === selected) opt.selected = true;
-        selectEl.appendChild(opt);
-      }
-    }
+  function hhmmToDisplay(hhmm) {
+    const [h24, min] = hhmm.split(":").map(Number);
+    if (Number.isNaN(h24) || Number.isNaN(min)) return { input: "", ampm: "AM" };
+    const ampm = h24 >= 12 ? "PM" : "AM";
+    const h12 = h24 % 12 || 12;
+    return { input: `${h12}:${String(min).padStart(2, "0")}`, ampm };
+  }
+
+  function parseTimeInput(inputVal, ampm) {
+    const s = (inputVal || "").trim();
+    if (!s) return null;
+    const m = s.match(/^(\d{1,2})(?::(\d{1,2}))?$/);
+    if (!m) return null;
+    let h = parseInt(m[1], 10);
+    const min = m[2] !== undefined ? parseInt(m[2], 10) : 0;
+    if (h < 1 || h > 12 || min < 0 || min > 59) return null;
+    if (ampm === "PM" && h !== 12) h += 12;
+    if (ampm === "AM" && h === 12) h = 0;
+    return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+  }
+
+  function setTimeFields(prefix, hhmm) {
+    const display = hhmmToDisplay(hhmm);
+    document.getElementById(`${prefix}TimeInput`).value = display.input;
+    document.getElementById(`${prefix}AmPm`).value = display.ampm;
+    document.getElementById(`${prefix}TimeInput`).classList.remove("invalid");
+  }
+
+  function readTimeFields(prefix) {
+    const inputEl = document.getElementById(`${prefix}TimeInput`);
+    const ampm = document.getElementById(`${prefix}AmPm`).value;
+    const hhmm = parseTimeInput(inputEl.value, ampm);
+    inputEl.classList.toggle("invalid", inputEl.value.trim() !== "" && !hhmm);
+    return hhmm;
   }
 
   function formatTime12(hhmm) {
@@ -534,7 +576,7 @@
   function defaultDraft() {
     const now = new Date();
     const open = new Date(now.getTime() + 30 * 60000);
-    open.setMinutes(Math.ceil(open.getMinutes() / 15) * 15, 0, 0);
+    open.setSeconds(0, 0);
     const close = new Date(open.getTime() + 3 * 3600000);
     return {
       date: toDateInputValue(open),
@@ -558,15 +600,15 @@
   function getDraftFromForm() {
     return {
       date: document.getElementById("irrDate").value,
-      openTime: document.getElementById("openTime").value,
-      closeTime: document.getElementById("closeTime").value,
+      openTime: readTimeFields("open"),
+      closeTime: readTimeFields("close"),
     };
   }
 
   function applyDraft(d) {
     document.getElementById("irrDate").value = d.date;
-    document.getElementById("openTime").value = d.openTime;
-    document.getElementById("closeTime").value = d.closeTime;
+    setTimeFields("open", d.openTime);
+    setTimeFields("close", d.closeTime);
     updatePreview();
   }
 
@@ -589,26 +631,38 @@
   }
 
   function validateTimes() {
-    const { date, openTime, closeTime } = getDraftFromForm();
+    const date = document.getElementById("irrDate").value;
+    const openTime = readTimeFields("open");
+    const closeTime = readTimeFields("close");
     const err = document.getElementById("timeError");
     if (!date || !openTime || !closeTime) {
-      err.classList.remove("show");
+      err.textContent = !openTime || !closeTime
+        ? "Enter a valid time (e.g. 10:30) and choose AM or PM."
+        : "Close must be after open on the same day.";
+      err.classList.toggle("show", !openTime || !closeTime);
       return false;
     }
     const ok = combineLocal(date, closeTime) > combineLocal(date, openTime);
+    err.textContent = "Close must be after open on the same day.";
     err.classList.toggle("show", !ok);
     return ok;
   }
 
   function updatePreview() {
-    const { date, openTime, closeTime } = getDraftFromForm();
+    const date = document.getElementById("irrDate").value;
+    const openTime = readTimeFields("open");
+    const closeTime = readTimeFields("close");
     const openEl = document.getElementById("previewOpen");
     const closeEl = document.getElementById("previewClose");
     const utcEl = document.getElementById("previewUtc");
 
     if (!date || !openTime || !closeTime) {
       openEl.textContent = closeEl.textContent = "—";
-      utcEl.textContent = "";
+      utcEl.textContent = (!openTime || !closeTime) && (document.getElementById("openTimeInput").value || document.getElementById("closeTimeInput").value)
+        ? "Enter a valid time (e.g. 10:30)"
+        : "";
+      validateTimes();
+      if (openTime && closeTime) saveDraft();
       return;
     }
 
@@ -829,12 +883,14 @@
 
   (function init() {
     const draft = loadDraft();
-    buildTimeOptions(document.getElementById("openTime"), draft.openTime);
-    buildTimeOptions(document.getElementById("closeTime"), draft.closeTime);
     applyDraft(draft);
 
-    ["irrDate", "openTime", "closeTime"].forEach(id => {
-      document.getElementById(id).addEventListener("change", updatePreview);
+    document.getElementById("irrDate").addEventListener("change", updatePreview);
+
+    ["open", "close"].forEach(prefix => {
+      document.getElementById(`${prefix}TimeInput`).addEventListener("input", updatePreview);
+      document.getElementById(`${prefix}TimeInput`).addEventListener("change", updatePreview);
+      document.getElementById(`${prefix}AmPm`).addEventListener("change", updatePreview);
     });
 
     document.getElementById("dateChips").addEventListener("click", e => {
