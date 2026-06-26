@@ -2,21 +2,21 @@
   "devices": {
     "pd01": [
       {
-        "id": "pd01-20260626T175500-open",
+        "id": "pd01-20260626T180700-open",
         "action": "open",
-        "time": "2026-06-26T17:55:00Z",
+        "time": "2026-06-26T18:07:00Z",
         "virtual_angle": 1440.0,
         "expected_duration_s": 120
       },
       {
-        "id": "pd01-20260626T175500-close",
+        "id": "pd01-20260626T180700-close",
         "action": "close",
-        "time": "2026-06-26T18:00:00Z",
+        "time": "2026-06-26T18:12:00Z",
         "virtual_angle": 0.0,
         "expected_duration_s": 60
       }
     ]
   },
   "generated_from": "manual_events.json",
-  "generated_at": "2026-06-26T17:50:29Z"
+  "generated_at": "2026-06-26T18:03:43Z"
 }
