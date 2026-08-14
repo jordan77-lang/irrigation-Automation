@@ -92,6 +92,56 @@
     }
     .chip:hover { background: var(--accent-light); border-color: var(--accent); }
 
+    /* --- valve travel stepper --- */
+    .turns-row {
+      display: grid; grid-template-columns: 3rem 1fr 3rem;
+      gap: 0.5rem; align-items: center; margin-bottom: 0.35rem;
+    }
+    .turns-row input {
+      margin-bottom: 0; text-align: center;
+      font-size: 1.15rem; font-weight: 600; min-height: 2.9rem;
+    }
+    .turn-step {
+      min-height: 2.9rem; border-radius: 8px;
+      border: 1.5px solid var(--border); background: #fff;
+      font: inherit; font-size: 1.3rem; font-weight: 700; line-height: 1;
+      color: var(--accent-dark); cursor: pointer;
+    }
+    .turn-step:hover { background: var(--accent-light); border-color: var(--accent); }
+    .turn-step:active { background: var(--accent); color: #fff; }
+    .turns-hint { margin: 0 0 0.85rem; }
+
+    /* --- 20x4 character LCD simulator (Adafruit #292 + HD44780) --- */
+    .lcd-card { padding-bottom: 1rem; }
+    .lcd-frame {
+      background: #1c2a20; border-radius: 10px; padding: 0.85rem;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.45);
+    }
+    .lcd-screen {
+      background: #9ec94a; color: #12240c;
+      font-family: "Cascadia Mono", "DejaVu Sans Mono", Consolas, monospace;
+      font-size: clamp(0.72rem, 3.6vw, 1.02rem);
+      line-height: 1.42; letter-spacing: 0.055em;
+      padding: 0.6rem 0.7rem; border-radius: 4px;
+      white-space: pre; overflow-x: auto;
+      text-shadow: 0 0 1px rgba(0,0,0,0.25);
+    }
+    .lcd-screen.backlight-off { background: #7d8f74; color: #2a3527; }
+    .lcd-meta {
+      display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+      margin-top: 0.7rem;
+    }
+    .lcd-btn {
+      flex: 1 1 auto; min-width: 4.2rem;
+      padding: 0.5rem 0.5rem; border-radius: 8px;
+      border: 1.5px solid var(--border); background: #fff;
+      font: inherit; font-size: 0.78rem; font-weight: 600;
+      color: var(--accent-dark); cursor: pointer; text-align: center;
+    }
+    .lcd-btn:hover { background: var(--accent-light); border-color: var(--accent); }
+    .lcd-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .lcd-note { font-size: 0.76rem; color: var(--muted); margin-top: 0.5rem; }
+
     .preview-box {
       background: var(--accent-light); border: 1px solid #b2d8c2;
       border-radius: 10px; padding: 0.75rem 0.9rem; margin: 0.75rem 0 0;
@@ -254,6 +304,24 @@
     </div>
   </div>
 
+  <div class="card lcd-card">
+    <div class="card-title">Device screen · 20×4</div>
+    <p class="card-hint">What the LCD shows now. Buttons mirror SW1/SW2/SW3 on the board.</p>
+    <div class="lcd-frame">
+      <div class="lcd-screen" id="lcdScreen">
+
+
+                    </div>
+    </div>
+    <div class="lcd-meta">
+      <button type="button" class="lcd-btn" data-lcd-page="schedule">1 · Schedule</button>
+      <button type="button" class="lcd-btn" data-lcd-page="dryrun">2 · Dry run</button>
+      <button type="button" class="lcd-btn" data-lcd-page="ready">3 · Ready</button>
+      <button type="button" class="lcd-btn" data-lcd-page="power">Power</button>
+    </div>
+    <p class="lcd-note" id="lcdNote"></p>
+  </div>
+
   <details class="sync-log-card" id="syncLogCard" open>
     <summary>Sync timing</summary>
     <div id="syncLogCurrent" class="sync-log-current" hidden></div>
@@ -310,6 +378,14 @@
       </div>
     </div>
 
+    <label for="openTurns">Valve travel · turns to open</label>
+    <div class="turns-row">
+      <button type="button" class="turn-step" data-turn-delta="-0.25" aria-label="Fewer turns">−</button>
+      <input id="openTurns" type="number" min="0.25" max="20" step="0.25" value="4" inputmode="decimal" />
+      <button type="button" class="turn-step" data-turn-delta="0.25" aria-label="More turns">+</button>
+    </div>
+    <p class="card-hint turns-hint" id="turnsHint">4 turns · 1440° · closes back to 0°</p>
+
     <div class="preview-box" id="previewBox">
       <div class="line"><span class="tag open">Open</span> <span id="previewOpen">—</span></div>
       <div class="line"><span class="tag close">Close</span> <span id="previewClose">—</span></div>
@@ -338,16 +414,8 @@
         Fine-grained needs Contents: Read and write to publish, plus Actions: Read and write for SRP refresh.
         The stepper tell also needs a device token in firmware (<code>GITHUB_STATUS_TOKEN</code> in config.h).
       </p>
-      <div class="row">
-        <div>
-          <label for="deviceId">Device ID</label>
-          <input id="deviceId" value="pd01" />
-        </div>
-        <div>
-          <label for="openTurns">Open turns</label>
-          <input id="openTurns" type="number" min="0.25" step="0.25" value="4" />
-        </div>
-      </div>
+      <label for="deviceId">Device ID</label>
+      <input id="deviceId" value="pd01" />
     </div>
   </details>
 
@@ -373,6 +441,7 @@
   const SRP_NAME     = "245 w 9th place";
 
   let liveScheduleData = null;
+  let manualScheduleData = null;
   let deviceStatusData = null;
   let lastSrpPreviewAt = null;
   let devicePollTimer = null;
@@ -1160,6 +1229,38 @@
     return { open: open?.time, close: close?.time };
   }
 
+  function schedulesMatch(a, b) {
+    return !!a?.open && !!a?.close && a.open === b?.open && a.close === b?.close;
+  }
+
+  function signedFeedLag(deviceId) {
+    if (!manualScheduleData?.generated_at || !liveScheduleData?.generated_at) {
+      return { behind: false, manual: null, live: null };
+    }
+
+    const manual = eventTimesForDevice(manualScheduleData, deviceId);
+    const live = eventTimesForDevice(liveScheduleData, deviceId);
+    const manualTs = parseIsoSafe(manualScheduleData.generated_at)?.getTime();
+    const liveTs = parseIsoSafe(liveScheduleData.generated_at)?.getTime();
+
+    const manualHasPair = !!manual.open && !!manual.close;
+    const liveHasPair = !!live.open && !!live.close;
+
+    if (manualHasPair && !liveHasPair) {
+      return { behind: true, manual, live };
+    }
+
+    if (manualHasPair && liveHasPair && !schedulesMatch(manual, live)) {
+      return { behind: true, manual, live };
+    }
+
+    if (Number.isFinite(manualTs) && Number.isFinite(liveTs) && manualTs > (liveTs + 1000)) {
+      return { behind: true, manual, live };
+    }
+
+    return { behind: false, manual, live };
+  }
+
   function scheduleAckMatches(live, ack, deviceId) {
     if (!live?.generated_at || ack?.schedule_generated_at !== live.generated_at) return false;
     const liveEv = eventTimesForDevice(live, deviceId);
@@ -1180,6 +1281,15 @@
     }
 
     const ack = deviceStatusData?.[deviceId];
+    const lag = signedFeedLag(deviceId);
+    if (lag.behind) {
+      dot.className = "dot warn";
+      text.textContent = "Waiting for signed schedule";
+      const manualRange = formatEventRange(lag.manual?.open, lag.manual?.close);
+      age.textContent = manualRange ? `Pending: ${manualRange}` : "Manual schedule is newer than signed feed";
+      return;
+    }
+
     const liveEv = eventTimesForDevice(liveScheduleData, deviceId);
     const synced = scheduleAckMatches(liveScheduleData, ack, deviceId);
 
@@ -1225,6 +1335,145 @@
     return dt
       ? dt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit" })
       : "—";
+  }
+
+  // ---------------------------------------------------------------------
+  // 20x4 LCD simulator — mirrors what src/main.cpp will draw on the device.
+  // Keep these builders in sync with the firmware's screen code.
+  // ---------------------------------------------------------------------
+  const LCD_COLS = 20, LCD_ROWS = 4;
+  let lcdPage = "schedule";
+
+  function lcdPad(line) {
+    const s = (line ?? "").slice(0, LCD_COLS);
+    return s + " ".repeat(LCD_COLS - s.length);
+  }
+
+  function lcdShortTime(dt) {
+    if (!dt) return "--:--";
+    let h = dt.getHours();
+    const m = String(dt.getMinutes()).padStart(2, "0");
+    const ap = h >= 12 ? "p" : "a";
+    h = h % 12 || 12;
+    return `${h}:${m}${ap}`;
+  }
+
+  function lcdShortDay(dt) {
+    return dt ? ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dt.getDay()] : "---";
+  }
+
+  function lcdCountdown(ms) {
+    if (!Number.isFinite(ms)) return "--";
+    if (ms < 0) return "now";
+    const mins = Math.floor(ms / 60000);
+    const d = Math.floor(mins / 1440);
+    const h = Math.floor((mins % 1440) / 60);
+    const m = mins % 60;
+    if (d > 0) return `${d}d ${h}h`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m}m`;
+  }
+
+  function lcdDeviceAck() {
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    return deviceStatusData?.[deviceId] || null;
+  }
+
+  function lcdNextEvents() {
+    const deviceId = document.getElementById("deviceId").value.trim() || "pd01";
+    const ev = eventTimesForDevice(liveScheduleData, deviceId);
+    return { open: parseIsoSafe(ev.open), close: parseIsoSafe(ev.close) };
+  }
+
+  function lcdPageSchedule() {
+    const { open, close } = lcdNextEvents();
+    const now = new Date();
+    if (!open) {
+      return ["NO SCHEDULE", "", "Press 1 to refresh", `NOW  ${lcdShortDay(now)} ${lcdShortTime(now)}`];
+    }
+    const ack = lcdDeviceAck();
+    const synced = ack && scheduleAckMatches(liveScheduleData, ack,
+      document.getElementById("deviceId").value.trim() || "pd01");
+    // Columns are tight: "OPEN " + "Fri " + "12:20p" = 15, leaving room for a
+    // right-aligned sync marker. Never let the am/pm suffix be the char that
+    // gets truncated — 12:20a vs 12:20p is the whole point of the screen.
+    const mark = synced ? "*" : " ";
+    return [
+      `OPEN  ${lcdShortDay(open)} ${lcdShortTime(open)}`,
+      close ? `CLOSE ${lcdShortDay(close)} ${lcdShortTime(close)}` : "",
+      `IN    ${lcdCountdown(open - now)}`,
+      `NOW   ${lcdShortDay(now)} ${lcdShortTime(now)}${mark}`,
+    ];
+  }
+
+  function lcdReadyChecks() {
+    const { open } = lcdNextEvents();
+    const ack = lcdDeviceAck();
+    const now = Date.now();
+    const schedOk = !!open && (open.getTime() > now);
+    const powerOk = !!ack && ack.pg_good === true;
+    const syncOk  = !!ack && (now - (parseIsoSafe(ack.received_at)?.getTime() ?? 0)) < 3600e3;
+    // Firmware treats "no dry run this power cycle" as NOT tested.
+    const motorOk = !!ack && ack.last_move_result === "ok";
+    const posClosed = !!ack && Math.abs(Number(ack.virtual_position_deg) || 0) < 5;
+    return { schedOk, powerOk, syncOk, motorOk, posClosed };
+  }
+
+  function lcdPageReady() {
+    const c = lcdReadyChecks();
+    const all = c.schedOk && c.powerOk && c.syncOk && c.motorOk;
+    const yn = v => (v ? "ok" : "--");
+    const head = all ? "=== READY TO GO ===" : "=== NOT READY =====";
+    if (!c.motorOk) {
+      return [head, `SCHED ${yn(c.schedOk)}  POWER ${yn(c.powerOk)}`,
+              "MOTOR -- NOT TESTED", "Run dry run (btn 2)"];
+    }
+    return [
+      head,
+      `SCHED ${yn(c.schedOk)}  POWER ${yn(c.powerOk)}`,
+      `MOTOR ${yn(c.motorOk)}  SYNC  ${yn(c.syncOk)}`,
+      `${c.posClosed ? "CLOSED" : "POSITION?"}    @ ${lcdShortTime(new Date())}`,
+    ];
+  }
+
+  function lcdPageDryRun() {
+    const turns = parseFloat(document.getElementById("openTurns").value) || 4;
+    return ["DRY RUN", "Press again to START",
+            `Open ${turns} turns, close`, "Cancel in 8s"];
+  }
+
+  function lcdPagePower() {
+    const ack = lcdDeviceAck();
+    const v = Number(ack?.vbus_volts);
+    const up = Number(ack?.uptime_s);
+    return [
+      "POWER",
+      `VBUS  ${Number.isFinite(v) ? v.toFixed(1) : "--.-"}V  PG ${ack?.pg_good ? "ok" : "--"}`,
+      `Uptime   ${Number.isFinite(up) ? formatDuration(up * 1000) : "--"}`,
+      ack ? `Profile ${ack.power_profile ?? "?"}` : "No telemetry yet",
+    ];
+  }
+
+  function renderLcd() {
+    const builders = {
+      schedule: lcdPageSchedule, ready: lcdPageReady,
+      dryrun: lcdPageDryRun, power: lcdPagePower,
+    };
+    const lines = (builders[lcdPage] || lcdPageSchedule)();
+    const screen = document.getElementById("lcdScreen");
+    if (!screen) return;
+    screen.textContent = Array.from({ length: LCD_ROWS }, (_, i) => lcdPad(lines[i])).join("\n");
+
+    const ack = lcdDeviceAck();
+    const note = document.getElementById("lcdNote");
+    if (note) {
+      note.textContent = ack?.received_at
+        ? `Simulated from telemetry received ${formatTelemetryDate(ack.received_at)}.`
+        : "Simulated — no device telemetry yet, so values are placeholders.";
+    }
+    document.querySelectorAll("[data-lcd-page]").forEach(b => {
+      b.classList.toggle("active", b.dataset.lcdPage === lcdPage);
+    });
   }
 
   function renderDeviceTelemetry() {
@@ -1348,19 +1597,34 @@
       if (!/^[a-f0-9]{64}$/i.test(sig)) throw new Error("bad sig");
 
       liveScheduleData = data;
+      try {
+        const mr = await fetch(`${RAW_BASE}/manual_events.json?t=${cacheBust}`, fetchOpts);
+        manualScheduleData = mr.ok ? await mr.json() : null;
+      } catch {
+        manualScheduleData = null;
+      }
+
       const liveFp = scheduleFingerprint(data, deviceId);
       if (liveFp !== lastLiveFingerprint) {
         lastLiveFingerprint = liveFp;
         wasStepperSynced = false;
       }
 
-      dot.className = "dot ok";
-      text.textContent = "Schedule published; signature file present";
+      const lag = signedFeedLag(deviceId);
+      if (lag.behind) {
+        dot.className = "dot warn";
+        text.textContent = "Signed feed is behind latest publish";
+        const manualRange = formatEventRange(lag.manual?.open, lag.manual?.close);
+        age.textContent = manualRange ? `Pending: ${manualRange}` : "Waiting for GitHub Actions to update signed feed";
+      } else {
+        dot.className = "dot ok";
+        text.textContent = "Schedule published; signature file present";
 
-      if (data.generated_at) {
-        const ev = eventTimesForDevice(data, deviceId);
-        age.textContent = formatEventRange(ev.open, ev.close)
-          || new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+        if (data.generated_at) {
+          const ev = eventTimesForDevice(data, deviceId);
+          age.textContent = formatEventRange(ev.open, ev.close)
+            || new Date(data.generated_at).toLocaleString([], { month:"short", day:"numeric", hour:"numeric", minute:"2-digit" });
+        }
       }
 
       if (dr.ok) {
@@ -1372,6 +1636,7 @@
       renderLiveSchedule(data);
       renderDeviceStatus();
       renderDeviceTelemetry();
+    renderLcd();
 
       if (syncSession && !syncSession.signedAt && scheduleMatchesExpected({ open: syncSession.open, close: syncSession.close })) {
         markScheduleSigned();
@@ -1412,6 +1677,7 @@
     } catch {
       if (opts.softFail) return;
       liveScheduleData = null;
+      manualScheduleData = null;
       deviceStatusData = null;
       dot.className = "dot warn";
       text.textContent = "No published signed feed yet";
@@ -1419,6 +1685,7 @@
       document.getElementById("liveSchedule").innerHTML = '<li class="empty-sched">Nothing on GitHub yet.</li>';
       renderDeviceStatus();
       renderDeviceTelemetry();
+    renderLcd();
     }
   }
 
@@ -1468,6 +1735,30 @@
       else sessionStorage.removeItem(TOKEN_SESSION_KEY);
     });
 
+    const turnsInput = document.getElementById("openTurns");
+    function updateTurnsHint() {
+      const t = parseFloat(turnsInput.value) || 0;
+      document.getElementById("turnsHint").textContent =
+        t > 0 ? `${t} turn${t === 1 ? "" : "s"} · ${Math.round(t * 360)}° · closes back to 0°`
+              : "Set how far the valve opens.";
+      renderLcd();
+    }
+    document.querySelectorAll("[data-turn-delta]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const delta = parseFloat(btn.dataset.turnDelta);
+        const next = Math.min(20, Math.max(0.25, (parseFloat(turnsInput.value) || 4) + delta));
+        turnsInput.value = String(Math.round(next * 100) / 100);
+        turnsInput.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    });
+    turnsInput.addEventListener("input", updateTurnsHint);
+    updateTurnsHint();
+
+    document.querySelectorAll("[data-lcd-page]").forEach(btn => {
+      btn.addEventListener("click", () => { lcdPage = btn.dataset.lcdPage; renderLcd(); });
+    });
+    setInterval(renderLcd, 30000);  // keep the countdown honest
+
     document.getElementById("pullSrpBtn").addEventListener("click", pullFromSRP);
     document.getElementById("publishBtn").addEventListener("click", publishToGitHub);
     document.getElementById("deviceStatusBar").addEventListener("click", () => checkFeed({ softFail: true }));
@@ -1475,6 +1766,7 @@
     setInterval(() => checkFeed(), 10000);
     renderSyncLog();
     renderDeviceTelemetry();
+    renderLcd();
   })();
 
   checkFeed().then(() => {
@@ -1484,6 +1776,7 @@
     backfillSyncLogFromAck(deviceStatusData?.[deviceId], liveScheduleData);
     renderSyncLog();
     renderDeviceTelemetry();
+    renderLcd();
   });
 </script>
 </body>
